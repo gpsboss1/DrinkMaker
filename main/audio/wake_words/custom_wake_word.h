@@ -17,9 +17,9 @@
 #include "audio_codec.h"
 #include "wake_word.h"
 
-#define CONFIG_CUSTOM_WAKE_WORD_H "ni hao xiao huan"
-#define CONFIG_CUSTOM_WAKE_WORD_THRESHOLD_H 40
-#define CONFIG_CUSTOM_WAKE_WORD_DISPLAY_H "你好小幻"
+// #define CONFIG_CUSTOM_WAKE_WORD_H "ni hao xiao huan"
+// #define CONFIG_CUSTOM_WAKE_WORD_THRESHOLD_H 40
+// #define CONFIG_CUSTOM_WAKE_WORD_DISPLAY_H "你好小幻"
 
 class CustomWakeWord : public WakeWord {
 public:

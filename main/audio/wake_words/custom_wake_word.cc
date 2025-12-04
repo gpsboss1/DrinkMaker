@@ -100,7 +100,7 @@ bool CustomWakeWord::Initialize(AudioCodec* codec, srmodel_list_t* models_list) 
         //取消注释以启用menconfig自定义唤醒词：
         // ParseWakenetModelConfig();
     }
-//头文件自定义唤醒词
+// 头文件自定义唤醒词
 #ifdef CONFIG_CUSTOM_WAKE_WORD_H
         threshold_ = CONFIG_CUSTOM_WAKE_WORD_THRESHOLD_H / 100.0f;
         commands_.push_back({CONFIG_CUSTOM_WAKE_WORD_H, CONFIG_CUSTOM_WAKE_WORD_DISPLAY_H, "wake"});

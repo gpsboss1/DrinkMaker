@@ -57,6 +57,7 @@ bool MqttProtocol::StartMqttClient(bool report_error) {
 
     Settings settings("mqtt", false);
     auto endpoint = settings.GetString("endpoint");
+    // std::string endpoint = "192.168.1.5:1883";
     auto client_id = settings.GetString("client_id");
     auto username = settings.GetString("username");
     auto password = settings.GetString("password");
@@ -91,6 +92,8 @@ bool MqttProtocol::StartMqttClient(bool report_error) {
     });
 
     mqtt_->OnMessage([this](const std::string& topic, const std::string& payload) {
+        // Log the raw incoming MQTT payload for debugging
+        ESP_LOGW(TAG, "MQTT message received. topic=%s, payload=%s", topic.c_str(), payload.c_str());
         cJSON* root = cJSON_Parse(payload.c_str());
         if (root == nullptr) {
             ESP_LOGE(TAG, "Failed to parse json message %s", payload.c_str());
@@ -335,8 +338,12 @@ void MqttProtocol::ParseServerHello(const cJSON* root) {
     }
     udp_server_ = cJSON_GetObjectItem(udp, "server")->valuestring;
     udp_port_ = cJSON_GetObjectItem(udp, "port")->valueint;
+    // 硬编码UDP服务器地址为192.168.1.5:8884
+    // udp_server_ = "192.168.1.5";
+    // udp_port_ = 8884;
     auto key = cJSON_GetObjectItem(udp, "key")->valuestring;
     auto nonce = cJSON_GetObjectItem(udp, "nonce")->valuestring;
+    ESP_LOGI(TAG, "Using hardcoded UDP server: %s:%d", udp_server_.c_str(), udp_port_);
 
     // auto encryption = cJSON_GetObjectItem(udp, "encryption")->valuestring;
     // ESP_LOGI(TAG, "UDP server: %s, port: %d, encryption: %s", udp_server_.c_str(), udp_port_, encryption);

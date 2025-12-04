@@ -507,6 +507,8 @@ void McpServer::GetToolsList(int id, const std::string& cursor, bool list_user_o
         json += "],\"nextCursor\":\"" + next_cursor + "\"}";
     }
     
+    // Log the toollist response JSON for debugging
+    ESP_LOGW(TAG, "tools/list response: %s", json.c_str());
     ReplyResult(id, json);
 }
 
