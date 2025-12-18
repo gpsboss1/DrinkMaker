@@ -110,6 +110,8 @@ bool Ota::CheckVersion() {
     // If it is, set has_new_version_ to true and store the new version and URL
     
     cJSON *root = cJSON_Parse(data.c_str());
+    //打印JSON内容
+    ESP_LOGW(TAG, "JSON response: %s", data.c_str());
     if (root == NULL) {
         ESP_LOGE(TAG, "Failed to parse JSON response");
         return false;

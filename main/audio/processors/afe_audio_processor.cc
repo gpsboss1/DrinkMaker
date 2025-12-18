@@ -142,11 +142,11 @@ void AfeAudioProcessor::AudioProcessorTask() {
         if (vad_state_change_callback_) {
             if (res->vad_state == VAD_SPEECH && !is_speaking_) {
                 is_speaking_ = true;
-                ESP_LOGI(TAG, "VAD: User started speaking");
+                // ESP_LOGI(TAG, "VAD: User started speaking");
                 vad_state_change_callback_(true);
             } else if (res->vad_state == VAD_SILENCE && is_speaking_) {
                 is_speaking_ = false;
-                ESP_LOGI(TAG, "VAD: User stopped speaking");
+                // ESP_LOGI(TAG, "VAD: User stopped speaking");
                 vad_state_change_callback_(false);
             }
         }

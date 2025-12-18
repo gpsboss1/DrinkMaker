@@ -343,7 +343,7 @@ void MqttProtocol::ParseServerHello(const cJSON* root) {
     // udp_port_ = 8884;
     auto key = cJSON_GetObjectItem(udp, "key")->valuestring;
     auto nonce = cJSON_GetObjectItem(udp, "nonce")->valuestring;
-    ESP_LOGI(TAG, "Using hardcoded UDP server: %s:%d", udp_server_.c_str(), udp_port_);
+    ESP_LOGI(TAG, "UDP server: %s:%d", udp_server_.c_str(), udp_port_);
 
     // auto encryption = cJSON_GetObjectItem(udp, "encryption")->valuestring;
     // ESP_LOGI(TAG, "UDP server: %s, port: %d, encryption: %s", udp_server_.c_str(), udp_port_, encryption);

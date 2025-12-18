@@ -67,6 +67,10 @@ if(CONFIG_BOARD_TYPE_BREAD_COMPACT_WIFI)
     set(BOARD_TYPE "bread-compact-wifi")
     set(BUILTIN_TEXT_FONT font_puhui_basic_14_1)
     set(BUILTIN_ICON_FONT font_awesome_14_1)
+elseif(CONFIG_BOARD_TYPE_BREAD_COMPACT_WIFI_CAR)
+    set(BOARD_TYPE "bread-compact-wifi-car")
+    set(BUILTIN_TEXT_FONT font_puhui_basic_14_1)
+    set(BUILTIN_ICON_FONT font_awesome_14_1)
 elseif(CONFIG_BOARD_TYPE_BREAD_COMPACT_ML307)
     set(BOARD_TYPE "bread-compact-ml307")
     set(BUILTIN_TEXT_FONT font_puhui_basic_14_1)
@@ -552,6 +556,15 @@ file(GLOB BOARD_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/boards/${BOARD_TYPE}/*.c
 )
 list(APPEND SOURCES ${BOARD_SOURCES})
+# Add board include directory so board-local headers (e.g. uart.h) are found
+list(APPEND INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/boards/${BOARD_TYPE})
+
+# Ensure common board helper files such as uart.cc are included when present
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/boards/${BOARD_TYPE}/uart.cc)
+    list(APPEND SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/boards/${BOARD_TYPE}/uart.cc")
+elseif(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/boards/${BOARD_TYPE}/uart.c)
+    list(APPEND SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/boards/${BOARD_TYPE}/uart.c")
+endif()
 
 # Select audio processor according to Kconfig
 if(CONFIG_USE_AUDIO_PROCESSOR)
