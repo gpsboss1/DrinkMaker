@@ -63,6 +63,8 @@ bool MqttProtocol::StartMqttClient(bool report_error) {
     auto password = settings.GetString("password");
     int keepalive_interval = settings.GetInt("keepalive", 240);
     publish_topic_ = settings.GetString("publish_topic");
+    // 读取可能由服务器下发的订阅主题（如果为 "null" 或空则忽略）
+    auto subscribe_topic = settings.GetString("subscribe_topic");
 
     if (endpoint.empty()) {
         ESP_LOGW(TAG, "MQTT endpoint is not specified");
@@ -137,6 +139,14 @@ bool MqttProtocol::StartMqttClient(bool report_error) {
         ESP_LOGE(TAG, "Failed to connect to endpoint");
         SetError(Lang::Strings::SERVER_NOT_CONNECTED);
         return false;
+    }
+    // 如果服务器返回了有效的 subscribe_topic（非空且不为字符串 "null"），则主动订阅
+    if (!subscribe_topic.empty() && subscribe_topic != "null") {
+        if (mqtt_->Subscribe(subscribe_topic)) {
+            ESP_LOGI(TAG, "Subscribed to topic %s", subscribe_topic.c_str());
+        } else {
+            ESP_LOGW(TAG, "Failed to subscribe to topic %s", subscribe_topic.c_str());
+        }
     }
 
     ESP_LOGI(TAG, "Connected to endpoint");

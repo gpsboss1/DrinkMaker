@@ -110,35 +110,35 @@ void UartTransmit::InitializeTools()
     //                        return "串口已发送指令";
     //                    });
 
-    // mcp_server.AddTool("self.dog.houtui",
-    //                    "通过串口发送指令 控制机器狗：后退",
-    //                    PropertyList(),
-    //                    [this](const PropertyList &properties) -> ReturnValue
-    //                    {
-    //                        char cmd[] = "@HOUTUI#$";
-    //                        uart_write_bytes(UART_PORT_NUM, cmd, strlen(cmd));
-    //                        return "串口已发送指令";
-    //                    });
+    mcp_server.AddTool("self.dog.houtui",
+                       "通过串口发送指令 控制机器狗：后退",
+                       PropertyList(),
+                       [this](const PropertyList &properties) -> ReturnValue
+                       {
+                           char cmd[] = "@HOUTUI#$";
+                           uart_write_bytes(UART_PORT_NUM, cmd, strlen(cmd));
+                           return "串口已发送指令";
+                       });
 
-    // mcp_server.AddTool("self.dog.youzhuan",
-    //                    "通过串口发送指令 控制机器狗：右转",
-    //                    PropertyList(),
-    //                    [this](const PropertyList &properties) -> ReturnValue
-    //                    {
-    //                        char cmd[] = "@YOUZHUAN#$";
-    //                        uart_write_bytes(UART_PORT_NUM, cmd, strlen(cmd));
-    //                        return "串口已发送指令";
-    //                    });
+    mcp_server.AddTool("self.dog.youzhuan",
+                       "通过串口发送指令 控制机器狗：右转",
+                       PropertyList(),
+                       [this](const PropertyList &properties) -> ReturnValue
+                       {
+                           char cmd[] = "@YOUZHUAN#$";
+                           uart_write_bytes(UART_PORT_NUM, cmd, strlen(cmd));
+                           return "串口已发送指令";
+                       });
 
-    // mcp_server.AddTool("self.dog.zuozhuan",
-    //                    "通过串口发送指令 控制机器狗：左转",
-    //                    PropertyList(),
-    //                    [this](const PropertyList &properties) -> ReturnValue
-    //                    {
-    //                        char cmd[] = "@ZUOZHUAN#$";
-    //                        uart_write_bytes(UART_PORT_NUM, cmd, strlen(cmd));
-    //                        return "串口已发送指令";
-    //                    });
+    mcp_server.AddTool("self.dog.zuozhuan",
+                       "通过串口发送指令 控制机器狗：左转",
+                       PropertyList(),
+                       [this](const PropertyList &properties) -> ReturnValue
+                       {
+                           char cmd[] = "@ZUOZHUAN#$";
+                           uart_write_bytes(UART_PORT_NUM, cmd, strlen(cmd));
+                           return "串口已发送指令";
+                       });
 
     // mcp_server.AddTool("self.dog.yaobai",
     //                    "通过串口发送指令 控制机器狗：摇摆",
