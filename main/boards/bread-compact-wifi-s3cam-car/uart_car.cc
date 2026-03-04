@@ -1,4 +1,4 @@
-#include "uart.h"
+#include "uart_car.h"
 #include <esp_log.h>
 #include "driver/uart.h"
 
@@ -31,7 +31,7 @@ void UartTransmit::InitializeTools()
     //                    });
 
     mcp_server.AddTool("self.dog.forward",
-                       "控制自己前进",
+                       "通过串口发送指令 控制机器狗前进",
                        PropertyList(),
                        [this](const PropertyList &properties) -> ReturnValue
                        {
@@ -41,7 +41,7 @@ void UartTransmit::InitializeTools()
                        });
 
     mcp_server.AddTool("self.dog.lizheng",
-                       "控制自己：立正",
+                       "通过串口发送指令 控制机器狗：立正",
                        PropertyList(),
                        [this](const PropertyList &properties) -> ReturnValue
                        {
@@ -51,7 +51,7 @@ void UartTransmit::InitializeTools()
                        });
 
     mcp_server.AddTool("self.dog.paxia",
-                       "控制自己：趴下",
+                       "通过串口发送指令 控制机器狗：趴下",
                        PropertyList(),
                        [this](const PropertyList &properties) -> ReturnValue
                        {
@@ -61,7 +61,7 @@ void UartTransmit::InitializeTools()
                        });
 
     // mcp_server.AddTool("self.dog.juepigu",
-    //                    "控制自己：撅屁股（抬尾姿势）",
+    //                    "通过串口发送指令 控制机器狗：撅屁股（抬尾姿势）",
     //                    PropertyList(),
     //                    [this](const PropertyList &properties) -> ReturnValue
     //                    {
@@ -71,7 +71,7 @@ void UartTransmit::InitializeTools()
     //                    });
 
     // mcp_server.AddTool("self.dog.dunxia",
-    //                    "控制自己：蹲下",
+    //                    "通过串口发送指令 控制机器狗：蹲下",
     //                    PropertyList(),
     //                    [this](const PropertyList &properties) -> ReturnValue
     //                    {
@@ -81,7 +81,7 @@ void UartTransmit::InitializeTools()
     //                    });
 
     // mcp_server.AddTool("self.dog.pingbanzhicheng",
-    //                    "控制自己：平板支撑",
+    //                    "通过串口发送指令 控制机器狗：平板支撑",
     //                    PropertyList(),
     //                    [this](const PropertyList &properties) -> ReturnValue
     //                    {
@@ -91,7 +91,7 @@ void UartTransmit::InitializeTools()
     //                    });
 
     // mcp_server.AddTool("self.dog.woshou",
-    //                    "控制自己：握手",
+    //                    "通过串口发送指令 控制机器狗：握手",
     //                    PropertyList(),
     //                    [this](const PropertyList &properties) -> ReturnValue
     //                    {
@@ -101,7 +101,7 @@ void UartTransmit::InitializeTools()
     //                    });
 
     // mcp_server.AddTool("self.dog.shuijiao",
-    //                    "控制自己：睡觉姿态",
+    //                    "通过串口发送指令 控制机器狗：睡觉姿态",
     //                    PropertyList(),
     //                    [this](const PropertyList &properties) -> ReturnValue
     //                    {
@@ -111,7 +111,7 @@ void UartTransmit::InitializeTools()
     //                    });
 
     mcp_server.AddTool("self.dog.houtui",
-                       "控制自己：后退",
+                       "通过串口发送指令 控制机器狗：后退",
                        PropertyList(),
                        [this](const PropertyList &properties) -> ReturnValue
                        {
@@ -121,7 +121,7 @@ void UartTransmit::InitializeTools()
                        });
 
     mcp_server.AddTool("self.dog.youzhuan",
-                       "控制自己：右转",
+                       "通过串口发送指令 控制机器狗：右转",
                        PropertyList(),
                        [this](const PropertyList &properties) -> ReturnValue
                        {
@@ -131,7 +131,7 @@ void UartTransmit::InitializeTools()
                        });
 
     mcp_server.AddTool("self.dog.zuozhuan",
-                       "控制自己：左转",
+                       "通过串口发送指令 控制机器狗：左转",
                        PropertyList(),
                        [this](const PropertyList &properties) -> ReturnValue
                        {
@@ -140,18 +140,18 @@ void UartTransmit::InitializeTools()
                            return "串口已发送指令";
                        });
 
-    // mcp_server.AddTool("self.dog.yaobai",
-    //                    "控制自己：摇摆",
-    //                    PropertyList(),
-    //                    [this](const PropertyList &properties) -> ReturnValue
-    //                    {
-    //                        char cmd[] = "@YAOBAI#$";
-    //                        uart_write_bytes(UART_PORT_NUM, cmd, strlen(cmd));
-    //                        return "串口已发送指令";
-    //                    });
+    mcp_server.AddTool("self.dog.yaobai",
+                       "通过串口发送指令 控制机器狗：摇摆",
+                       PropertyList(),
+                       [this](const PropertyList &properties) -> ReturnValue
+                       {
+                           char cmd[] = "@YAOBAI#$";
+                           uart_write_bytes(UART_PORT_NUM, cmd, strlen(cmd));
+                           return "串口已发送指令";
+                       });
 
     // mcp_server.AddTool("self.dog.batu",
-    //                    "控制自己：扒土（挖地动作）",
+    //                    "通过串口发送指令 控制机器狗：扒土（挖地动作）",
     //                    PropertyList(),
     //                    [this](const PropertyList &properties) -> ReturnValue
     //                    {
@@ -161,7 +161,7 @@ void UartTransmit::InitializeTools()
     //                    });
 
     // mcp_server.AddTool("self.dog.sajiao",
-    //                    "控制自己：撒娇动作",
+    //                    "通过串口发送指令 控制机器狗：撒娇动作",
     //                    PropertyList(),
     //                    [this](const PropertyList &properties) -> ReturnValue
     //                    {
@@ -171,7 +171,7 @@ void UartTransmit::InitializeTools()
     //                    });
 
     // mcp_server.AddTool("self.dog.goudengtui",
-    //                    "控制自己：狗蹬腿动作",
+    //                    "通过串口发送指令 控制机器狗：狗蹬腿动作",
     //                    PropertyList(),
     //                    [this](const PropertyList &properties) -> ReturnValue
     //                    {
@@ -181,7 +181,7 @@ void UartTransmit::InitializeTools()
     //                    });
 
     // mcp_server.AddTool("self.dog.guibai",
-    //                    "控制自己：跪拜动作",
+    //                    "通过串口发送指令 控制机器狗：跪拜动作",
     //                    PropertyList(),
     //                    [this](const PropertyList &properties) -> ReturnValue
     //                    {
@@ -191,7 +191,7 @@ void UartTransmit::InitializeTools()
     //                    });
 
     // mcp_server.AddTool("self.dog.bianlian",
-    //                    "控制自己：变脸（快速变换动作）",
+    //                    "通过串口发送指令 控制机器狗：变脸（快速变换动作）",
     //                    PropertyList(),
     //                    [this](const PropertyList &properties) -> ReturnValue
     //                    {
@@ -201,7 +201,7 @@ void UartTransmit::InitializeTools()
     //                    });
 
     // mcp_server.AddTool("self.dog.kaideng",
-    //                    "控制自己：开灯",
+    //                    "通过串口发送指令 控制机器狗：开灯",
     //                    PropertyList(),
     //                    [this](const PropertyList &properties) -> ReturnValue
     //                    {
@@ -211,7 +211,7 @@ void UartTransmit::InitializeTools()
     //                    });
 
     // mcp_server.AddTool("self.dog.guandeng",
-    //                    "控制自己：关灯",
+    //                    "通过串口发送指令 控制机器狗：关灯",
     //                    PropertyList(),
     //                    [this](const PropertyList &properties) -> ReturnValue
     //                    {
@@ -220,18 +220,33 @@ void UartTransmit::InitializeTools()
     //                        return "串口已发送指令";
     //                    });
 
-    // mcp_server.AddTool("self.dog.wendu",
-    //                    "控制自己：获取温度",
-    //                    PropertyList(),
-    //                    [this](const PropertyList &properties) -> ReturnValue
-    //                    {
-    //                        char cmd[] = "@WENDU#$";
-    //                        uart_write_bytes(UART_PORT_NUM, cmd, strlen(cmd));
-    //                        return "串口已发送指令";
-    //                    });
+    mcp_server.AddTool("self.dog.wendu",
+                       "通过串口发送指令 控制机器狗：获取温度、湿度、海拔",
+                       PropertyList(),
+                       [this](const PropertyList &properties) -> ReturnValue
+                       {
+                           const char *cmds[] = {
+                               "%1+1;2+10#`",
+                               "%+01+1+-3.0#*",
+                               "%3+2+-800.00#^",
+                               "%01+1+-0.0#-",
+                               "@WENDU#$",
+                           };
+
+                           for (const char *c : cmds) {
+                               int len = strlen(c);
+                               int written = uart_write_bytes(UART_PORT_NUM, c, len);
+                               if (written < 0) {
+                                   ESP_LOGW(TAG, "uart write failed (ret=%d) for cmd: %s", written, c);
+                               }
+                               vTaskDelay(100 / portTICK_PERIOD_MS);
+                           }
+
+                           return "串口已发送指令";
+                       });
 
     // mcp_server.AddTool("self.dog.yaqiang",
-    //                    "控制自己：气压（气强）检测",
+    //                    "通过串口发送指令 控制机器狗：气压（气强）检测",
     //                    PropertyList(),
     //                    [this](const PropertyList &properties) -> ReturnValue
     //                    {
@@ -241,7 +256,7 @@ void UartTransmit::InitializeTools()
     //                    });
 
     // mcp_server.AddTool("self.dog.daqiya",
-    //                    "控制自己：大气压检测",
+    //                    "通过串口发送指令 控制机器狗：大气压检测",
     //                    PropertyList(),
     //                    [this](const PropertyList &properties) -> ReturnValue
     //                    {
@@ -251,7 +266,7 @@ void UartTransmit::InitializeTools()
     //                    });
 
     // mcp_server.AddTool("self.dog.haiba",
-    //                    "控制自己：海拔高度查询",
+    //                    "通过串口发送指令 控制机器狗：海拔高度查询",
     //                    PropertyList(),
     //                    [this](const PropertyList &properties) -> ReturnValue
     //                    {

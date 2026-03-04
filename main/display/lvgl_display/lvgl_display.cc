@@ -55,8 +55,8 @@ LvglDisplay::~LvglDisplay() {
     if (status_label_ != nullptr) {
         lv_obj_del(status_label_);
     }
-    if (mute_label_ != nullptr) {
-        lv_obj_del(mute_label_);
+    if (volume_label_ != nullptr) {
+        lv_obj_del(volume_label_);
     }
     if (battery_label_ != nullptr) {
         lv_obj_del(battery_label_);
@@ -106,17 +106,23 @@ void LvglDisplay::UpdateStatusBar(bool update_all) {
     // Update mute icon
     {
         DisplayLockGuard lock(this);
-        if (mute_label_ == nullptr) {
+        if (volume_label_ == nullptr) {
             return;
         }
 
         // 如果静音状态改变，则更新图标
         if (codec->output_volume() == 0 && !muted_) {
             muted_ = true;
-            lv_label_set_text(mute_label_, FONT_AWESOME_VOLUME_XMARK);
-        } else if (codec->output_volume() > 0 && muted_) {
+            lv_label_set_text(volume_label_, FONT_AWESOME_VOLUME_XMARK);
+        } else if (codec->output_volume() > 0 && codec->output_volume() < 30) {
             muted_ = false;
-            lv_label_set_text(mute_label_, "");
+            lv_label_set_text(volume_label_, FONT_AWESOME_VOLUME_LOW);
+        } else if (codec->output_volume() >= 30 && codec->output_volume() < 60) {
+            muted_ = false;
+            lv_label_set_text(volume_label_, FONT_AWESOME_VOLUME);
+        } else if (codec->output_volume() >= 60 && codec->output_volume() < 100) {
+            muted_ = false;
+            lv_label_set_text(volume_label_, FONT_AWESOME_VOLUME_HIGH);
         }
     }
 

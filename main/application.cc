@@ -406,7 +406,7 @@ void Application::Start() {
     // protocol_ = std::make_unique<MqttProtocol>();
     // protocol_ = std::make_unique<WebsocketProtocol>();
 
-    //自动选择通讯协议（MQTT优先）
+    // 自动选择通讯协议（MQTT优先）
     if (ota.HasMqttConfig()) {
         protocol_ = std::make_unique<MqttProtocol>();
     } else if (ota.HasWebsocketConfig()) {

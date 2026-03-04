@@ -38,7 +38,7 @@ public:
         lv_obj_set_style_text_color(network_label_, lv_color_black(), 0);
         lv_obj_set_style_text_color(notification_label_, lv_color_black(), 0);
         lv_obj_set_style_text_color(status_label_, lv_color_black(), 0);
-        lv_obj_set_style_text_color(mute_label_, lv_color_black(), 0);
+        lv_obj_set_style_text_color(volume_label_, lv_color_black(), 0);
         lv_obj_set_style_text_color(battery_label_, lv_color_black(), 0);
 
         // 设置内容区背景色和文本颜色

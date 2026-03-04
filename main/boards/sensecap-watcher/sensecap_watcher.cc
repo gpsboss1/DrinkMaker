@@ -62,7 +62,7 @@ class CustomLcdDisplay : public SpiLcdDisplay {
             //               status            //
             lv_obj_align(battery_label_, LV_ALIGN_TOP_MID, -2.5 * icon_font->line_height, 0);
             lv_obj_align(network_label_, LV_ALIGN_TOP_MID, -0.5 * icon_font->line_height, 0);
-            lv_obj_align(mute_label_, LV_ALIGN_TOP_MID, 1.5 * icon_font->line_height, 0);
+            lv_obj_align(volume_label_, LV_ALIGN_TOP_MID, 1.5 * icon_font->line_height, 0);
             
             lv_obj_align(status_label_, LV_ALIGN_BOTTOM_MID, 0, 0);
             lv_obj_set_flex_grow(status_label_, 0);

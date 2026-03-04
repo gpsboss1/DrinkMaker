@@ -342,11 +342,13 @@ void McpServer::ParseCapabilities(const cJSON* capabilities) {
             auto camera = Board::GetInstance().GetCamera();
             if (camera) {
                 std::string url_str = std::string(url->valuestring);
+                // std::string url_str = "http://192.168.1.5:8989/xiaozhi/api/vision";
                 std::string token_str;
                 if (cJSON_IsString(token)) {
                     token_str = std::string(token->valuestring);
                 }
                 camera->SetExplainUrl(url_str, token_str);
+                ESP_LOGW(TAG, "Vision URL set to: %s", url_str.c_str());
             }
         }
     }
@@ -425,6 +427,10 @@ void McpServer::ParseMessage(const cJSON* json) {
             return;
         }
         auto tool_arguments = cJSON_GetObjectItem(params, "arguments");
+        // Treat explicit JSON `null` as no arguments (equivalent to omitted or `{}`).
+        if (tool_arguments != nullptr && cJSON_IsNull(tool_arguments)) {
+            tool_arguments = nullptr;
+        }
         if (tool_arguments != nullptr && !cJSON_IsObject(tool_arguments)) {
             ESP_LOGE(TAG, "tools/call: Invalid arguments");
             ReplyError(id_int, "Invalid arguments");

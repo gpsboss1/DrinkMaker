@@ -434,10 +434,10 @@ void LcdDisplay::SetupUI() {
     lv_obj_set_style_text_color(status_label_, lvgl_theme->text_color(), 0);
     lv_label_set_text(status_label_, Lang::Strings::INITIALIZING);
     
-    mute_label_ = lv_label_create(status_bar_);
-    lv_label_set_text(mute_label_, "");
-    lv_obj_set_style_text_font(mute_label_, icon_font, 0);
-    lv_obj_set_style_text_color(mute_label_, lvgl_theme->text_color(), 0);
+    volume_label_ = lv_label_create(status_bar_);
+    lv_label_set_text(volume_label_, "");
+    lv_obj_set_style_text_font(volume_label_, icon_font, 0);
+    lv_obj_set_style_text_color(volume_label_, lvgl_theme->text_color(), 0);
 
     battery_label_ = lv_label_create(status_bar_);
     lv_label_set_text(battery_label_, "");
@@ -847,10 +847,10 @@ void LcdDisplay::SetupUI() {
     lv_obj_set_style_text_color(status_label_, lvgl_theme->text_color(), 0);
     lv_label_set_text(status_label_, Lang::Strings::INITIALIZING);
 
-    mute_label_ = lv_label_create(status_bar_);
-    lv_label_set_text(mute_label_, "");
-    lv_obj_set_style_text_font(mute_label_, icon_font, 0);
-    lv_obj_set_style_text_color(mute_label_, lvgl_theme->text_color(), 0);
+    volume_label_ = lv_label_create(status_bar_);
+    lv_label_set_text(volume_label_, "");
+    lv_obj_set_style_text_font(volume_label_, icon_font, 0);
+    lv_obj_set_style_text_color(volume_label_, lvgl_theme->text_color(), 0);
 
     battery_label_ = lv_label_create(status_bar_);
     lv_label_set_text(battery_label_, "");
@@ -1000,11 +1000,11 @@ void LcdDisplay::SetTheme(Theme* theme) {
     auto large_icon_font = lvgl_theme->large_icon_font()->font();
 
     if (text_font->line_height >= 40) {
-        lv_obj_set_style_text_font(mute_label_, large_icon_font, 0);
+        lv_obj_set_style_text_font(volume_label_, large_icon_font, 0);
         lv_obj_set_style_text_font(battery_label_, large_icon_font, 0);
         lv_obj_set_style_text_font(network_label_, large_icon_font, 0);
     } else {
-        lv_obj_set_style_text_font(mute_label_, icon_font, 0);
+        lv_obj_set_style_text_font(volume_label_, icon_font, 0);
         lv_obj_set_style_text_font(battery_label_, icon_font, 0);
         lv_obj_set_style_text_font(network_label_, icon_font, 0);
     }
@@ -1029,7 +1029,7 @@ void LcdDisplay::SetTheme(Theme* theme) {
     lv_obj_set_style_text_color(network_label_, lvgl_theme->text_color(), 0);
     lv_obj_set_style_text_color(status_label_, lvgl_theme->text_color(), 0);
     lv_obj_set_style_text_color(notification_label_, lvgl_theme->text_color(), 0);
-    lv_obj_set_style_text_color(mute_label_, lvgl_theme->text_color(), 0);
+    lv_obj_set_style_text_color(volume_label_, lvgl_theme->text_color(), 0);
     lv_obj_set_style_text_color(battery_label_, lvgl_theme->text_color(), 0);
     lv_obj_set_style_text_color(emoji_label_, lvgl_theme->text_color(), 0);
 
