@@ -6,12 +6,14 @@
 
 #include <vector>
 #include <algorithm>
+#include <tuple>
 #include <font_awesome.h>
 #include <esp_log.h>
 #include <esp_err.h>
 #include <esp_lvgl_port.h>
 #include <esp_psram.h>
 #include <cstring>
+#include <cstdio>
 
 #include "board.h"
 
@@ -20,6 +22,7 @@
 LV_FONT_DECLARE(BUILTIN_TEXT_FONT);
 LV_FONT_DECLARE(BUILTIN_ICON_FONT);
 LV_FONT_DECLARE(font_awesome_30_4);
+LV_FONT_DECLARE(font_puhui_14_1);
 
 void LcdDisplay::InitializeLcdThemes() {
     auto text_font = std::make_shared<LvglBuiltInFont>(&BUILTIN_TEXT_FONT);
@@ -73,6 +76,8 @@ LcdDisplay::LcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_handle_
     Settings settings("display", false);
     std::string theme_name = settings.GetString("theme", "light");
     current_theme_ = LvglThemeManager::GetInstance().GetTheme(theme_name);
+    std::string ui_mode = settings.GetString("ui_mode", "machine");
+    ui_mode_ = (ui_mode == "chat") ? UiMode::Chat : UiMode::Machine;
 
     // Create a timer to hide the preview image
     esp_timer_create_args_t preview_timer_args = {
@@ -289,6 +294,17 @@ MipiLcdDisplay::MipiLcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel
 }
 
 LcdDisplay::~LcdDisplay() {
+    if (machine_progress_timer_ != nullptr) {
+        esp_timer_stop(machine_progress_timer_);
+        esp_timer_delete(machine_progress_timer_);
+        machine_progress_timer_ = nullptr;
+    }
+    if (machine_brew_anim_timer_ != nullptr) {
+        esp_timer_stop(machine_brew_anim_timer_);
+        esp_timer_delete(machine_brew_anim_timer_);
+        machine_brew_anim_timer_ = nullptr;
+    }
+
     SetPreviewImage(nullptr);
     
     // Clean up GIF controller
@@ -326,6 +342,9 @@ LcdDisplay::~LcdDisplay() {
     if (side_bar_ != nullptr) {
         lv_obj_del(side_bar_);
     }
+    if (machine_panel_ != nullptr) {
+        lv_obj_del(machine_panel_);
+    }
     if (container_ != nullptr) {
         lv_obj_del(container_);
     }
@@ -347,6 +366,853 @@ bool LcdDisplay::Lock(int timeout_ms) {
 
 void LcdDisplay::Unlock() {
     lvgl_port_unlock();
+}
+
+void LcdDisplay::SetupMachinePanel() {
+    if (container_ == nullptr) {
+        return;
+    }
+
+    const lv_font_t* machine_text_font = &font_puhui_14_1;
+
+    const lv_color_t bg_white = lv_color_hex(0xFFFFFF);
+    const lv_color_t text_dark = lv_color_hex(0x333333);
+    const lv_color_t text_highlight = lv_color_hex(0x0066CC);
+    const lv_color_t btn_default = lv_color_hex(0xE0E0E0);
+    const lv_color_t btn_active = lv_color_hex(0x0066CC);
+    const lv_color_t btn_minus = lv_color_hex(0xCCCCCC);
+    const lv_color_t btn_next = lv_color_hex(0x009933);
+    const lv_color_t btn_back = lv_color_hex(0xCC3300);
+    const lv_color_t panel_bg = lv_color_hex(0xF0F0F0);
+
+    machine_panel_ = lv_obj_create(container_);
+    lv_obj_set_width(machine_panel_, LV_HOR_RES);
+    lv_obj_set_flex_grow(machine_panel_, 1);
+    lv_obj_set_style_radius(machine_panel_, 0, 0);
+    lv_obj_set_style_border_width(machine_panel_, 0, 0);
+    lv_obj_set_style_pad_all(machine_panel_, 0, 0);
+    lv_obj_set_style_bg_color(machine_panel_, bg_white, 0);
+    lv_obj_set_scrollbar_mode(machine_panel_, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_remove_flag(machine_panel_, LV_OBJ_FLAG_SCROLLABLE);
+
+    auto create_page = [&](int index, const char* title_text, bool has_action_area) {
+        machine_pages_[index] = lv_obj_create(machine_panel_);
+        lv_obj_set_size(machine_pages_[index], LV_HOR_RES, LV_VER_RES);
+        lv_obj_set_style_pad_all(machine_pages_[index], 10, 0);
+        lv_obj_set_style_pad_row(machine_pages_[index], 8, 0);
+        lv_obj_set_style_border_width(machine_pages_[index], 0, 0);
+        lv_obj_set_style_radius(machine_pages_[index], 0, 0);
+        lv_obj_set_style_bg_color(machine_pages_[index], bg_white, 0);
+        lv_obj_set_style_bg_opa(machine_pages_[index], LV_OPA_COVER, 0);
+        lv_obj_set_flex_flow(machine_pages_[index], LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_scrollbar_mode(machine_pages_[index], LV_SCROLLBAR_MODE_OFF);
+        lv_obj_remove_flag(machine_pages_[index], LV_OBJ_FLAG_SCROLLABLE);
+
+        lv_obj_t* title = lv_label_create(machine_pages_[index]);
+        lv_obj_set_width(title, LV_HOR_RES - 20);
+        lv_obj_set_height(title, LV_SIZE_CONTENT);
+        lv_obj_set_style_text_font(title, machine_text_font, 0);
+        lv_obj_set_style_text_color(title, text_dark, 0);
+        lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_pad_all(title, 0, 0);
+        lv_label_set_long_mode(title, LV_LABEL_LONG_CLIP);
+        lv_label_set_text(title, title_text);
+
+        lv_obj_t* body = lv_obj_create(machine_pages_[index]);
+        lv_obj_set_width(body, LV_HOR_RES - 20);
+        lv_obj_set_flex_grow(body, 1);
+        lv_obj_set_style_bg_opa(body, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(body, 0, 0);
+        lv_obj_set_style_pad_all(body, 0, 0);
+        lv_obj_set_style_pad_row(body, 10, 0);
+        lv_obj_set_flex_flow(body, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_align(body, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_scrollbar_mode(body, LV_SCROLLBAR_MODE_OFF);
+        lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLLABLE);
+
+        lv_obj_t* action = nullptr;
+        if (has_action_area) {
+            action = lv_obj_create(machine_pages_[index]);
+            lv_obj_set_size(action, LV_HOR_RES - 20, 45);
+            lv_obj_set_style_bg_opa(action, LV_OPA_TRANSP, 0);
+            lv_obj_set_style_border_width(action, 0, 0);
+            lv_obj_set_style_pad_all(action, 0, 0);
+            lv_obj_set_flex_flow(action, LV_FLEX_FLOW_ROW);
+            lv_obj_set_flex_align(action, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+            lv_obj_set_scrollbar_mode(action, LV_SCROLLBAR_MODE_OFF);
+            lv_obj_remove_flag(action, LV_OBJ_FLAG_SCROLLABLE);
+        }
+
+        return std::make_tuple(body, action);
+    };
+
+    auto create_round_button = [&](lv_obj_t* parent, const char* text, lv_color_t bg) {
+        lv_obj_t* btn = lv_obj_create(parent);
+        lv_obj_set_size(btn, 40, 40);
+        lv_obj_set_style_radius(btn, 20, 0);
+        lv_obj_set_style_bg_color(btn, bg, 0);
+        lv_obj_set_style_border_width(btn, 0, 0);
+        lv_obj_set_scrollbar_mode(btn, LV_SCROLLBAR_MODE_OFF);
+        lv_obj_remove_flag(btn, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_t* label = lv_label_create(btn);
+        lv_obj_set_style_text_font(label, machine_text_font, 0);
+        lv_obj_set_style_text_color(label, lv_color_white(), 0);
+        lv_label_set_text(label, text);
+        lv_obj_center(label);
+        AddButtonPressFeedback(btn);
+        return btn;
+    };
+
+    auto [page1_body, page1_action] = create_page(0, "选择饮品&浓度", true);
+    lv_obj_t* drink_wrap = lv_obj_create(page1_body);
+    lv_obj_set_size(drink_wrap, 220, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(drink_wrap, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(drink_wrap, 0, 0);
+    lv_obj_set_style_pad_all(drink_wrap, 0, 0);
+    lv_obj_set_style_pad_row(drink_wrap, 10, 0);
+    lv_obj_set_style_pad_column(drink_wrap, 10, 0);
+    lv_obj_set_flex_flow(drink_wrap, LV_FLEX_FLOW_ROW_WRAP);
+    lv_obj_set_flex_align(drink_wrap, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_scrollbar_mode(drink_wrap, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_remove_flag(drink_wrap, LV_OBJ_FLAG_SCROLLABLE);
+
+    const char* drink_names[4] = {"奶茶", "咖啡", "豆浆", "麦片"};
+    for (int i = 0; i < 4; ++i) {
+        drink_buttons_[i] = lv_obj_create(drink_wrap);
+        lv_obj_set_size(drink_buttons_[i], 100, 40);
+        lv_obj_set_style_radius(drink_buttons_[i], 8, 0);
+        lv_obj_set_style_bg_color(drink_buttons_[i], btn_default, 0);
+        lv_obj_set_style_border_width(drink_buttons_[i], 0, 0);
+        lv_obj_set_style_pad_all(drink_buttons_[i], 0, 0);
+        lv_obj_set_scrollbar_mode(drink_buttons_[i], LV_SCROLLBAR_MODE_OFF);
+        lv_obj_remove_flag(drink_buttons_[i], LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_flag(drink_buttons_[i], LV_OBJ_FLAG_CLICKABLE);
+        drink_button_labels_[i] = lv_label_create(drink_buttons_[i]);
+        lv_obj_set_style_text_font(drink_button_labels_[i], machine_text_font, 0);
+        lv_obj_set_style_text_color(drink_button_labels_[i], text_dark, 0);
+        lv_label_set_text(drink_button_labels_[i], drink_names[i]);
+        lv_obj_center(drink_button_labels_[i]);
+        AddButtonPressFeedback(drink_buttons_[i]);
+
+        lv_obj_add_event_cb(drink_buttons_[i], [](lv_event_t* e) {
+            if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
+                return;
+            }
+            auto* display = static_cast<LcdDisplay*>(lv_event_get_user_data(e));
+            auto* target = reinterpret_cast<lv_obj_t*>(lv_event_get_target(e));
+            if (display == nullptr || target == nullptr) {
+                return;
+            }
+            for (int idx = 0; idx < 4; ++idx) {
+                if (display->drink_buttons_[idx] == target) {
+                    display->SetDrinkSelection(idx);
+                    break;
+                }
+            }
+        }, LV_EVENT_CLICKED, this);
+    }
+
+    lv_obj_t* granule_box = lv_obj_create(page1_body);
+    lv_obj_set_size(granule_box, 220, 60);
+    lv_obj_set_style_radius(granule_box, 8, 0);
+    lv_obj_set_style_bg_color(granule_box, panel_bg, 0);
+    lv_obj_set_style_border_width(granule_box, 0, 0);
+    lv_obj_set_style_pad_all(granule_box, 5, 0);
+    lv_obj_set_flex_flow(granule_box, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(granule_box, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_scrollbar_mode(granule_box, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_remove_flag(granule_box, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t* granule_name = lv_label_create(granule_box);
+    lv_obj_set_width(granule_name, 88);
+    lv_obj_set_style_text_align(granule_name, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_color(granule_name, text_dark, 0);
+    lv_obj_set_style_text_font(granule_name, machine_text_font, 0);
+    lv_label_set_text(granule_name, "颗粒重量");
+
+    granule_value_label_ = lv_label_create(granule_box);
+    lv_obj_set_width(granule_value_label_, 66);
+    lv_obj_set_style_text_align(granule_value_label_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_color(granule_value_label_, text_highlight, 0);
+    lv_obj_set_style_text_font(granule_value_label_, machine_text_font, 0);
+
+    lv_obj_t* granule_buttons = lv_obj_create(granule_box);
+    lv_obj_set_size(granule_buttons, 86, 40);
+    lv_obj_set_style_bg_opa(granule_buttons, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(granule_buttons, 0, 0);
+    lv_obj_set_style_pad_all(granule_buttons, 0, 0);
+    lv_obj_set_flex_flow(granule_buttons, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(granule_buttons, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_scrollbar_mode(granule_buttons, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_remove_flag(granule_buttons, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t* granule_minus = create_round_button(granule_buttons, "-", btn_minus);
+    lv_obj_t* granule_plus = create_round_button(granule_buttons, "+", btn_active);
+
+    lv_obj_add_event_cb(granule_minus, [](lv_event_t* e) {
+        if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
+            auto* display = static_cast<LcdDisplay*>(lv_event_get_user_data(e));
+            if (display != nullptr) {
+                display->AdjustGranule(-1);
+            }
+        }
+    }, LV_EVENT_CLICKED, this);
+    lv_obj_add_event_cb(granule_plus, [](lv_event_t* e) {
+        if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
+            auto* display = static_cast<LcdDisplay*>(lv_event_get_user_data(e));
+            if (display != nullptr) {
+                display->AdjustGranule(1);
+            }
+        }
+    }, LV_EVENT_CLICKED, this);
+
+    lv_obj_t* page1_next = lv_obj_create(page1_action);
+    ApplyButtonStyle(page1_next, nullptr, btn_next, lv_color_white(), 8);
+    lv_obj_set_size(page1_next, 200, 45);
+    lv_obj_set_scrollbar_mode(page1_next, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_remove_flag(page1_next, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(page1_next, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_align(page1_next, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_t* page1_next_label = lv_label_create(page1_next);
+    lv_obj_set_style_text_font(page1_next_label, machine_text_font, 0);
+    lv_obj_set_style_text_color(page1_next_label, lv_color_white(), 0);
+    lv_label_set_text(page1_next_label, "下一步");
+    lv_obj_center(page1_next_label);
+    AddButtonPressFeedback(page1_next);
+    lv_obj_add_event_cb(page1_next, [](lv_event_t* e) {
+        if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
+            return;
+        }
+        auto* display = static_cast<LcdDisplay*>(lv_event_get_user_data(e));
+        if (display == nullptr) {
+            return;
+        }
+        if (display->machine_selected_drink_index_ < 0) {
+            lv_label_set_text(display->machine_hint_label_, "请先选择饮品");
+            return;
+        }
+        display->SwitchMachinePage(1);
+    }, LV_EVENT_CLICKED, this);
+
+    auto [page2_body, page2_action] = create_page(1, "选择冲调水量", true);
+    lv_obj_t* water_box = lv_obj_create(page2_body);
+    lv_obj_set_size(water_box, 220, 60);
+    lv_obj_set_style_radius(water_box, 8, 0);
+    lv_obj_set_style_bg_color(water_box, panel_bg, 0);
+    lv_obj_set_style_border_width(water_box, 0, 0);
+    lv_obj_set_style_pad_all(water_box, 5, 0);
+    lv_obj_set_flex_flow(water_box, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(water_box, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_scrollbar_mode(water_box, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_remove_flag(water_box, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t* water_name = lv_label_create(water_box);
+    lv_obj_set_width(water_name, 88);
+    lv_obj_set_style_text_align(water_name, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_color(water_name, text_dark, 0);
+    lv_obj_set_style_text_font(water_name, machine_text_font, 0);
+    lv_label_set_text(water_name, "冲调水量");
+
+    water_value_label_ = lv_label_create(water_box);
+    lv_obj_set_width(water_value_label_, 66);
+    lv_obj_set_style_text_align(water_value_label_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_color(water_value_label_, text_highlight, 0);
+    lv_obj_set_style_text_font(water_value_label_, machine_text_font, 0);
+
+    lv_obj_t* water_buttons = lv_obj_create(water_box);
+    lv_obj_set_size(water_buttons, 86, 40);
+    lv_obj_set_style_bg_opa(water_buttons, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(water_buttons, 0, 0);
+    lv_obj_set_style_pad_all(water_buttons, 0, 0);
+    lv_obj_set_flex_flow(water_buttons, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(water_buttons, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_scrollbar_mode(water_buttons, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_remove_flag(water_buttons, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t* water_minus = create_round_button(water_buttons, "-", btn_minus);
+    lv_obj_t* water_plus = create_round_button(water_buttons, "+", btn_active);
+    lv_obj_add_event_cb(water_minus, [](lv_event_t* e) {
+        if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
+            auto* display = static_cast<LcdDisplay*>(lv_event_get_user_data(e));
+            if (display != nullptr) {
+                display->AdjustWater(-10);
+            }
+        }
+    }, LV_EVENT_CLICKED, this);
+    lv_obj_add_event_cb(water_plus, [](lv_event_t* e) {
+        if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
+            auto* display = static_cast<LcdDisplay*>(lv_event_get_user_data(e));
+            if (display != nullptr) {
+                display->AdjustWater(10);
+            }
+        }
+    }, LV_EVENT_CLICKED, this);
+
+    lv_obj_t* page2_back = lv_obj_create(page2_action);
+    ApplyButtonStyle(page2_back, nullptr, btn_back, lv_color_white(), 8);
+    lv_obj_set_size(page2_back, 100, 45);
+    lv_obj_set_scrollbar_mode(page2_back, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_remove_flag(page2_back, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t* page2_back_label = lv_label_create(page2_back);
+    lv_obj_set_style_text_font(page2_back_label, machine_text_font, 0);
+    lv_obj_set_style_text_color(page2_back_label, lv_color_white(), 0);
+    lv_label_set_text(page2_back_label, "返回");
+    lv_obj_center(page2_back_label);
+    AddButtonPressFeedback(page2_back);
+
+    lv_obj_t* page2_next = lv_obj_create(page2_action);
+    ApplyButtonStyle(page2_next, nullptr, btn_next, lv_color_white(), 8);
+    lv_obj_set_size(page2_next, 100, 45);
+    lv_obj_set_scrollbar_mode(page2_next, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_remove_flag(page2_next, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t* page2_next_label = lv_label_create(page2_next);
+    lv_obj_set_style_text_font(page2_next_label, machine_text_font, 0);
+    lv_obj_set_style_text_color(page2_next_label, lv_color_white(), 0);
+    lv_label_set_text(page2_next_label, "下一步");
+    lv_obj_center(page2_next_label);
+    AddButtonPressFeedback(page2_next);
+
+    lv_obj_add_event_cb(page2_back, [](lv_event_t* e) {
+        if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
+            auto* display = static_cast<LcdDisplay*>(lv_event_get_user_data(e));
+            if (display != nullptr) {
+                display->SwitchMachinePage(0);
+            }
+        }
+    }, LV_EVENT_CLICKED, this);
+    lv_obj_add_event_cb(page2_next, [](lv_event_t* e) {
+        if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
+            auto* display = static_cast<LcdDisplay*>(lv_event_get_user_data(e));
+            if (display != nullptr) {
+                display->SwitchMachinePage(2);
+            }
+        }
+    }, LV_EVENT_CLICKED, this);
+
+    auto [page3_body, page3_action] = create_page(2, "选择冲调温度", true);
+    lv_obj_t* temp_box = lv_obj_create(page3_body);
+    lv_obj_set_size(temp_box, 220, 60);
+    lv_obj_set_style_radius(temp_box, 8, 0);
+    lv_obj_set_style_bg_color(temp_box, panel_bg, 0);
+    lv_obj_set_style_border_width(temp_box, 0, 0);
+    lv_obj_set_style_pad_all(temp_box, 5, 0);
+    lv_obj_set_flex_flow(temp_box, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(temp_box, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_scrollbar_mode(temp_box, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_remove_flag(temp_box, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t* temp_name = lv_label_create(temp_box);
+    lv_obj_set_width(temp_name, 88);
+    lv_obj_set_style_text_align(temp_name, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_color(temp_name, text_dark, 0);
+    lv_obj_set_style_text_font(temp_name, machine_text_font, 0);
+    lv_label_set_text(temp_name, "冲调温度");
+
+    temp_value_label_ = lv_label_create(temp_box);
+    lv_obj_set_width(temp_value_label_, 66);
+    lv_obj_set_style_text_align(temp_value_label_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_color(temp_value_label_, text_highlight, 0);
+    lv_obj_set_style_text_font(temp_value_label_, machine_text_font, 0);
+
+    lv_obj_t* temp_buttons = lv_obj_create(temp_box);
+    lv_obj_set_size(temp_buttons, 86, 40);
+    lv_obj_set_style_bg_opa(temp_buttons, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(temp_buttons, 0, 0);
+    lv_obj_set_style_pad_all(temp_buttons, 0, 0);
+    lv_obj_set_flex_flow(temp_buttons, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(temp_buttons, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_scrollbar_mode(temp_buttons, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_remove_flag(temp_buttons, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t* temp_minus = create_round_button(temp_buttons, "-", btn_minus);
+    lv_obj_t* temp_plus = create_round_button(temp_buttons, "+", btn_active);
+    lv_obj_add_event_cb(temp_minus, [](lv_event_t* e) {
+        if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
+            auto* display = static_cast<LcdDisplay*>(lv_event_get_user_data(e));
+            if (display != nullptr) {
+                display->AdjustTemp(-1);
+            }
+        }
+    }, LV_EVENT_CLICKED, this);
+    lv_obj_add_event_cb(temp_plus, [](lv_event_t* e) {
+        if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
+            auto* display = static_cast<LcdDisplay*>(lv_event_get_user_data(e));
+            if (display != nullptr) {
+                display->AdjustTemp(1);
+            }
+        }
+    }, LV_EVENT_CLICKED, this);
+
+    lv_obj_t* page3_back = lv_obj_create(page3_action);
+    ApplyButtonStyle(page3_back, nullptr, btn_back, lv_color_white(), 8);
+    lv_obj_set_size(page3_back, 100, 45);
+    lv_obj_set_scrollbar_mode(page3_back, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_remove_flag(page3_back, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t* page3_back_label = lv_label_create(page3_back);
+    lv_obj_set_style_text_font(page3_back_label, machine_text_font, 0);
+    lv_obj_set_style_text_color(page3_back_label, lv_color_white(), 0);
+    lv_label_set_text(page3_back_label, "返回");
+    lv_obj_center(page3_back_label);
+    AddButtonPressFeedback(page3_back);
+
+    machine_start_button_ = lv_obj_create(page3_action);
+    ApplyButtonStyle(machine_start_button_, nullptr, btn_next, lv_color_white(), 8);
+    lv_obj_set_size(machine_start_button_, 100, 45);
+    lv_obj_set_scrollbar_mode(machine_start_button_, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_remove_flag(machine_start_button_, LV_OBJ_FLAG_SCROLLABLE);
+    machine_start_button_label_ = lv_label_create(machine_start_button_);
+    lv_obj_set_style_text_font(machine_start_button_label_, machine_text_font, 0);
+    lv_obj_set_style_text_color(machine_start_button_label_, lv_color_white(), 0);
+    lv_label_set_text(machine_start_button_label_, "开始冲调");
+    lv_obj_center(machine_start_button_label_);
+    AddButtonPressFeedback(machine_start_button_);
+
+    lv_obj_add_event_cb(page3_back, [](lv_event_t* e) {
+        if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
+            auto* display = static_cast<LcdDisplay*>(lv_event_get_user_data(e));
+            if (display != nullptr) {
+                display->SwitchMachinePage(1);
+            }
+        }
+    }, LV_EVENT_CLICKED, this);
+    lv_obj_add_event_cb(machine_start_button_, [](lv_event_t* e) {
+        if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
+            auto* display = static_cast<LcdDisplay*>(lv_event_get_user_data(e));
+            if (display != nullptr) {
+                display->ShowCupPopup(true);
+            }
+        }
+    }, LV_EVENT_CLICKED, this);
+
+    auto [page4_body, _page4_action] = create_page(3, "冲调中", false);
+    brewing_animated_label_ = lv_label_create(page4_body);
+    lv_obj_set_style_text_font(brewing_animated_label_, machine_text_font, 0);
+    lv_obj_set_style_text_color(brewing_animated_label_, text_highlight, 0);
+    lv_obj_set_style_text_opa(brewing_animated_label_, LV_OPA_100, 0);
+    lv_obj_set_style_text_align(brewing_animated_label_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_text(brewing_animated_label_, "[BREW] 冲调中...");
+
+    machine_progress_label_ = lv_label_create(page4_body);
+    lv_obj_set_style_text_font(machine_progress_label_, machine_text_font, 0);
+    lv_obj_set_style_text_color(machine_progress_label_, text_dark, 0);
+    lv_obj_set_style_text_align(machine_progress_label_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_text(machine_progress_label_, "进度：0%");
+
+    auto [page5_body, page5_action] = create_page(4, "冲调完成", true);
+    completed_title_label_ = lv_label_create(page5_body);
+    lv_obj_set_style_text_font(completed_title_label_, machine_text_font, 0);
+    lv_obj_set_style_text_color(completed_title_label_, lv_color_hex(0x009933), 0);
+    lv_obj_set_style_text_align(completed_title_label_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_text(completed_title_label_, "制作完成");
+
+    completed_info_label_ = lv_label_create(page5_body);
+    lv_obj_set_width(completed_info_label_, LV_HOR_RES - 40);
+    lv_obj_set_style_text_font(completed_info_label_, machine_text_font, 0);
+    lv_obj_set_style_text_color(completed_info_label_, text_dark, 0);
+    lv_obj_set_style_text_align(completed_info_label_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(completed_info_label_, LV_LABEL_LONG_WRAP);
+    lv_label_set_text(completed_info_label_, "请取走您的饮品");
+
+    lv_obj_t* remake_button = lv_obj_create(page5_action);
+    ApplyButtonStyle(remake_button, nullptr, btn_next, lv_color_white(), 8);
+    lv_obj_set_size(remake_button, 100, 45);
+    lv_obj_set_scrollbar_mode(remake_button, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_remove_flag(remake_button, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_align(remake_button, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_t* remake_label = lv_label_create(remake_button);
+    lv_obj_set_style_text_font(remake_label, machine_text_font, 0);
+    lv_obj_set_style_text_color(remake_label, lv_color_white(), 0);
+    lv_label_set_text(remake_label, "重新制作");
+    lv_obj_center(remake_label);
+    AddButtonPressFeedback(remake_button);
+    lv_obj_add_event_cb(remake_button, [](lv_event_t* e) {
+        if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
+            auto* display = static_cast<LcdDisplay*>(lv_event_get_user_data(e));
+            if (display != nullptr) {
+                display->ResetMachineFlow();
+            }
+        }
+    }, LV_EVENT_CLICKED, this);
+
+    cup_popup_mask_ = lv_obj_create(machine_panel_);
+    lv_obj_set_size(cup_popup_mask_, LV_HOR_RES, LV_VER_RES);
+    lv_obj_set_style_bg_color(cup_popup_mask_, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(cup_popup_mask_, LV_OPA_50, 0);
+    lv_obj_set_style_border_width(cup_popup_mask_, 0, 0);
+    lv_obj_set_style_radius(cup_popup_mask_, 0, 0);
+    lv_obj_set_style_pad_all(cup_popup_mask_, 0, 0);
+    lv_obj_add_flag(cup_popup_mask_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(cup_popup_mask_, LV_OBJ_FLAG_SCROLLABLE);
+
+    cup_popup_ = lv_obj_create(cup_popup_mask_);
+    lv_obj_set_size(cup_popup_, 200, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_color(cup_popup_, bg_white, 0);
+    lv_obj_set_style_border_width(cup_popup_, 0, 0);
+    lv_obj_set_style_radius(cup_popup_, 8, 0);
+    lv_obj_set_style_pad_top(cup_popup_, 20, 0);
+    lv_obj_set_style_pad_bottom(cup_popup_, 20, 0);
+    lv_obj_set_style_pad_left(cup_popup_, 10, 0);
+    lv_obj_set_style_pad_right(cup_popup_, 10, 0);
+    lv_obj_set_style_pad_row(cup_popup_, 12, 0);
+    lv_obj_set_flex_flow(cup_popup_, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(cup_popup_, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_scrollbar_mode(cup_popup_, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_remove_flag(cup_popup_, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_center(cup_popup_);
+
+    cup_popup_tip_label_ = lv_label_create(cup_popup_);
+    lv_obj_set_style_text_font(cup_popup_tip_label_, machine_text_font, 0);
+    lv_obj_set_style_text_color(cup_popup_tip_label_, text_dark, 0);
+    lv_obj_set_style_text_align(cup_popup_tip_label_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_text(cup_popup_tip_label_, "请放置杯子后确认");
+
+    cup_popup_confirm_button_ = lv_obj_create(cup_popup_);
+    lv_obj_set_size(cup_popup_confirm_button_, 80, 35);
+    lv_obj_set_scrollbar_mode(cup_popup_confirm_button_, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_remove_flag(cup_popup_confirm_button_, LV_OBJ_FLAG_SCROLLABLE);
+    ApplyButtonStyle(cup_popup_confirm_button_, nullptr, btn_active, lv_color_white(), 6);
+    cup_popup_confirm_button_label_ = lv_label_create(cup_popup_confirm_button_);
+    lv_obj_set_style_text_font(cup_popup_confirm_button_label_, machine_text_font, 0);
+    lv_obj_set_style_text_color(cup_popup_confirm_button_label_, lv_color_white(), 0);
+    lv_label_set_text(cup_popup_confirm_button_label_, "确认");
+    lv_obj_center(cup_popup_confirm_button_label_);
+    AddButtonPressFeedback(cup_popup_confirm_button_);
+    lv_obj_add_event_cb(cup_popup_confirm_button_, [](lv_event_t* e) {
+        if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
+            auto* display = static_cast<LcdDisplay*>(lv_event_get_user_data(e));
+            if (display != nullptr) {
+                display->ShowCupPopup(false);
+                display->StartBrewingFlow();
+            }
+        }
+    }, LV_EVENT_CLICKED, this);
+
+    machine_status_label_ = completed_title_label_;
+    machine_recipe_label_ = completed_info_label_;
+    machine_temp_label_ = temp_value_label_;
+    machine_volume_label_ = water_value_label_;
+    machine_hint_label_ = cup_popup_tip_label_;
+
+    esp_timer_create_args_t machine_progress_timer_args = {
+        .callback = [](void* arg) {
+        auto* display = static_cast<LcdDisplay*>(arg);
+        if (display != nullptr) {
+            display->OnBrewingTick();
+        }
+        },
+        .arg = this,
+        .dispatch_method = ESP_TIMER_TASK,
+        .name = "brew_progress",
+        .skip_unhandled_events = false,
+    };
+    esp_timer_create(&machine_progress_timer_args, &machine_progress_timer_);
+
+    esp_timer_create_args_t machine_brew_anim_timer_args = {
+        .callback = [](void* arg) {
+        auto* display = static_cast<LcdDisplay*>(arg);
+        if (display != nullptr) {
+            display->OnBrewAnimTick();
+        }
+        },
+        .arg = this,
+        .dispatch_method = ESP_TIMER_TASK,
+        .name = "brew_anim",
+        .skip_unhandled_events = false,
+    };
+    esp_timer_create(&machine_brew_anim_timer_args, &machine_brew_anim_timer_);
+
+    UpdateMachineValueLabels();
+    UpdateDrinkButtonStyles();
+    SwitchMachinePage(0);
+}
+
+void LcdDisplay::ApplyButtonStyle(lv_obj_t* button, lv_obj_t* label, lv_color_t bg, lv_color_t text, lv_coord_t radius) {
+    if (button == nullptr) {
+        return;
+    }
+    lv_obj_set_style_bg_color(button, bg, 0);
+    lv_obj_set_style_bg_opa(button, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(button, 0, 0);
+    lv_obj_set_style_radius(button, radius, 0);
+    if (label != nullptr) {
+        lv_obj_set_style_text_color(label, text, 0);
+    }
+}
+
+void LcdDisplay::AddButtonPressFeedback(lv_obj_t* button) {
+    if (button == nullptr) {
+        return;
+    }
+    lv_obj_add_event_cb(button, [](lv_event_t* e) {
+        auto* target = reinterpret_cast<lv_obj_t*>(lv_event_get_target(e));
+        if (target == nullptr) {
+            return;
+        }
+        lv_event_code_t code = lv_event_get_code(e);
+        if (code == LV_EVENT_PRESSED) {
+            lv_obj_set_style_bg_opa(target, LV_OPA_80, 0);
+            lv_obj_set_style_transform_zoom(target, 244, 0);
+        } else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+            lv_obj_set_style_bg_opa(target, LV_OPA_COVER, 0);
+            lv_obj_set_style_transform_zoom(target, 256, 0);
+        }
+    }, LV_EVENT_ALL, this);
+}
+
+void LcdDisplay::SwitchMachinePage(int page_index) {
+    if (page_index < 0 || page_index > 4) {
+        return;
+    }
+    for (int i = 0; i < 5; ++i) {
+        if (machine_pages_[i] == nullptr) {
+            continue;
+        }
+        if (i == page_index) {
+            lv_obj_remove_flag(machine_pages_[i], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_move_foreground(machine_pages_[i]);
+        } else {
+            lv_obj_add_flag(machine_pages_[i], LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+    if (machine_panel_ != nullptr) {
+        lv_obj_move_foreground(machine_panel_);
+    }
+    if (cup_popup_mask_ != nullptr && lv_obj_has_flag(cup_popup_mask_, LV_OBJ_FLAG_HIDDEN) == false) {
+        lv_obj_move_foreground(cup_popup_mask_);
+    }
+}
+
+void LcdDisplay::SetDrinkSelection(int index) {
+    if (index < 0 || index > 3) {
+        return;
+    }
+    machine_selected_drink_index_ = index;
+    UpdateDrinkButtonStyles();
+}
+
+void LcdDisplay::AdjustGranule(int delta) {
+    machine_granule_g_ += delta;
+    if (machine_granule_g_ < 5) {
+        machine_granule_g_ = 5;
+    }
+    if (machine_granule_g_ > 50) {
+        machine_granule_g_ = 50;
+    }
+    UpdateMachineValueLabels();
+}
+
+void LcdDisplay::AdjustWater(int delta) {
+    machine_water_ml_ += delta;
+    if (machine_water_ml_ < 50) {
+        machine_water_ml_ = 50;
+    }
+    if (machine_water_ml_ > 500) {
+        machine_water_ml_ = 500;
+    }
+    UpdateMachineValueLabels();
+}
+
+void LcdDisplay::AdjustTemp(int delta) {
+    machine_temp_c_ += delta;
+    if (machine_temp_c_ < 40) {
+        machine_temp_c_ = 40;
+    }
+    if (machine_temp_c_ > 95) {
+        machine_temp_c_ = 95;
+    }
+    UpdateMachineValueLabels();
+}
+
+void LcdDisplay::UpdateMachineValueLabels() {
+    char text_buffer[64] = {0};
+    if (granule_value_label_ != nullptr) {
+        std::snprintf(text_buffer, sizeof(text_buffer), "%dg", machine_granule_g_);
+        lv_label_set_text(granule_value_label_, text_buffer);
+    }
+    if (water_value_label_ != nullptr) {
+        std::snprintf(text_buffer, sizeof(text_buffer), "%dml", machine_water_ml_);
+        lv_label_set_text(water_value_label_, text_buffer);
+    }
+    if (temp_value_label_ != nullptr) {
+        std::snprintf(text_buffer, sizeof(text_buffer), "%dC", machine_temp_c_);
+        lv_label_set_text(temp_value_label_, text_buffer);
+    }
+    if (machine_progress_label_ != nullptr) {
+        std::snprintf(text_buffer, sizeof(text_buffer), "进度：%d%%", machine_progress_percent_);
+        lv_label_set_text(machine_progress_label_, text_buffer);
+    }
+}
+
+void LcdDisplay::UpdateDrinkButtonStyles() {
+    const lv_color_t btn_default = lv_color_hex(0xE0E0E0);
+    const lv_color_t btn_active = lv_color_hex(0x0066CC);
+    const lv_color_t text_dark = lv_color_hex(0x333333);
+    for (int i = 0; i < 4; ++i) {
+        if (drink_buttons_[i] == nullptr || drink_button_labels_[i] == nullptr) {
+            continue;
+        }
+        bool active = (i == machine_selected_drink_index_);
+        lv_obj_set_style_bg_color(drink_buttons_[i], active ? btn_active : btn_default, 0);
+        lv_obj_set_style_text_color(drink_button_labels_[i], active ? lv_color_white() : text_dark, 0);
+    }
+}
+
+void LcdDisplay::ShowCupPopup(bool show) {
+    if (cup_popup_mask_ == nullptr) {
+        return;
+    }
+    if (show) {
+        lv_obj_remove_flag(cup_popup_mask_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_move_foreground(cup_popup_mask_);
+    } else {
+        lv_obj_add_flag(cup_popup_mask_, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+void LcdDisplay::StartBrewingFlow() {
+    machine_progress_percent_ = 0;
+    machine_anim_phase_ = 0;
+    UpdateMachineValueLabels();
+    SwitchMachinePage(3);
+    if (machine_progress_timer_ != nullptr) {
+        esp_timer_stop(machine_progress_timer_);
+        esp_timer_start_periodic(machine_progress_timer_, 500 * 1000);
+    }
+    if (machine_brew_anim_timer_ != nullptr) {
+        esp_timer_stop(machine_brew_anim_timer_);
+        esp_timer_start_periodic(machine_brew_anim_timer_, 250 * 1000);
+    }
+}
+
+void LcdDisplay::StopBrewingFlow() {
+    if (machine_progress_timer_ != nullptr) {
+        esp_timer_stop(machine_progress_timer_);
+    }
+    if (machine_brew_anim_timer_ != nullptr) {
+        esp_timer_stop(machine_brew_anim_timer_);
+    }
+}
+
+void LcdDisplay::OnBrewingTick() {
+    DisplayLockGuard lock(this);
+    machine_progress_percent_ += 10;
+    if (machine_progress_percent_ > 100) {
+        machine_progress_percent_ = 100;
+    }
+    UpdateMachineValueLabels();
+    if (machine_progress_percent_ >= 100) {
+        StopBrewingFlow();
+        UpdateCompletedSummary();
+        SwitchMachinePage(4);
+    }
+}
+
+void LcdDisplay::OnBrewAnimTick() {
+    DisplayLockGuard lock(this);
+    if (brewing_animated_label_ == nullptr) {
+        return;
+    }
+    machine_anim_phase_ = (machine_anim_phase_ + 1) % 5;
+    lv_opa_t opa = static_cast<lv_opa_t>(LV_OPA_60 + machine_anim_phase_ * 10);
+    lv_obj_set_style_text_opa(brewing_animated_label_, opa, 0);
+}
+
+void LcdDisplay::UpdateCompletedSummary() {
+    if (completed_info_label_ == nullptr) {
+        return;
+    }
+    const char* drink_names[4] = {"奶茶", "咖啡", "豆浆", "麦片"};
+    const char* drink_name = (machine_selected_drink_index_ >= 0 && machine_selected_drink_index_ < 4)
+                                 ? drink_names[machine_selected_drink_index_]
+                                 : "未选择";
+    char summary[128] = {0};
+    std::snprintf(summary, sizeof(summary), "%s | %dg | %dml | %dC",
+                  drink_name, machine_granule_g_, machine_water_ml_, machine_temp_c_);
+    lv_label_set_text(completed_info_label_, summary);
+}
+
+void LcdDisplay::ResetMachineFlow() {
+    StopBrewingFlow();
+    machine_selected_drink_index_ = -1;
+    machine_granule_g_ = 20;
+    machine_water_ml_ = 200;
+    machine_temp_c_ = 85;
+    machine_progress_percent_ = 0;
+    machine_anim_phase_ = 0;
+    UpdateMachineValueLabels();
+    UpdateDrinkButtonStyles();
+    ShowCupPopup(false);
+    if (completed_info_label_ != nullptr) {
+        lv_label_set_text(completed_info_label_, "请取走您的饮品");
+    }
+    SwitchMachinePage(0);
+}
+
+void LcdDisplay::ApplyUiModeLocked() {
+    // UI模式切换核心：
+    // - machine 模式显示 machine_panel_，隐藏原聊天容器
+    // - chat 模式反向处理
+    // 注意：该函数假设调用方已经持有 LVGL 锁。
+    bool show_machine = (ui_mode_ == UiMode::Machine);
+
+    if (content_ != nullptr) {
+        if (show_machine) {
+            lv_obj_add_flag(content_, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_remove_flag(content_, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+
+    if (emoji_label_ != nullptr) {
+        if (show_machine) {
+            lv_obj_add_flag(emoji_label_, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_remove_flag(emoji_label_, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+
+    if (emoji_image_ != nullptr && show_machine) {
+        lv_obj_add_flag(emoji_image_, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    if (machine_panel_ != nullptr) {
+        if (show_machine) {
+            lv_obj_remove_flag(machine_panel_, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(machine_panel_, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+}
+
+void LcdDisplay::SetUiModeByName(const std::string& mode_name) {
+    // 对外模式入口：解析字符串、持久化到 settings、立即刷新可见性。
+    DisplayLockGuard lock(this);
+    if (mode_name == "chat") {
+        ui_mode_ = UiMode::Chat;
+    } else {
+        ui_mode_ = UiMode::Machine;
+    }
+
+    Settings settings("display", true);
+    settings.SetString("ui_mode", GetUiModeName());
+    ApplyUiModeLocked();
+}
+
+std::string LcdDisplay::GetUiModeName() const {
+    // 给 MCP/上层调用返回当前模式名称。
+    return ui_mode_ == UiMode::Machine ? "machine" : "chat";
+}
+
+void LcdDisplay::SetStatus(const char* status) {
+    // 保持原有状态栏逻辑，同时把状态镜像到机器面板。
+    LvglDisplay::SetStatus(status);
+
+    // 新版冲调流程中，页面内容由专用状态机维护，不再覆盖页面标题/提示文案。
+    (void)status;
+}
+
+void LcdDisplay::UpdateMachinePanelMessage(const char* role, const char* content) {
+    // 冲调机工作流页面文案固定，不与聊天消息混写。
+    (void)role;
+    (void)content;
 }
 
 #if CONFIG_USE_WECHAT_MESSAGE_STYLE
@@ -466,6 +1332,9 @@ void LcdDisplay::SetupUI() {
     lv_obj_set_style_text_font(emoji_label_, large_icon_font, 0);
     lv_obj_set_style_text_color(emoji_label_, lvgl_theme->text_color(), 0);
     lv_label_set_text(emoji_label_, FONT_AWESOME_MICROCHIP_AI);
+
+    SetupMachinePanel();
+    ApplyUiModeLocked();
 }
 #if CONFIG_IDF_TARGET_ESP32P4
 #define  MAX_MESSAGES 40
@@ -474,6 +1343,7 @@ void LcdDisplay::SetupUI() {
 #endif
 void LcdDisplay::SetChatMessage(const char* role, const char* content) {
     DisplayLockGuard lock(this);
+    UpdateMachinePanelMessage(role, content);
     if (content_ == nullptr) {
         return;
     }
@@ -869,6 +1739,9 @@ void LcdDisplay::SetupUI() {
     lv_obj_set_style_text_color(low_battery_label_, lv_color_white(), 0);
     lv_obj_center(low_battery_label_);
     lv_obj_add_flag(low_battery_popup_, LV_OBJ_FLAG_HIDDEN);
+
+    SetupMachinePanel();
+    ApplyUiModeLocked();
 }
 
 void LcdDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image) {
@@ -910,6 +1783,7 @@ void LcdDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image) {
 
 void LcdDisplay::SetChatMessage(const char* role, const char* content) {
     DisplayLockGuard lock(this);
+    UpdateMachinePanelMessage(role, content);
     if (chat_message_label_ == nullptr) {
         return;
     }
@@ -926,6 +1800,18 @@ void LcdDisplay::SetEmotion(const char* emotion) {
     }
     
     if (emoji_image_ == nullptr) {
+        return;
+    }
+
+    // Machine UI模式下不显示emoji，避免遮挡面板内容
+    if (ui_mode_ == UiMode::Machine) {
+        DisplayLockGuard lock(this);
+        if (emoji_image_ != nullptr) {
+            lv_obj_add_flag(emoji_image_, LV_OBJ_FLAG_HIDDEN);
+        }
+        if (emoji_label_ != nullptr) {
+            lv_obj_add_flag(emoji_label_, LV_OBJ_FLAG_HIDDEN);
+        }
         return;
     }
 
@@ -1036,6 +1922,32 @@ void LcdDisplay::SetTheme(Theme* theme) {
     // Set content background opacity
     lv_obj_set_style_bg_opa(content_, LV_OPA_TRANSP, 0);
 
+    if (machine_panel_ != nullptr) {
+        lv_obj_set_style_bg_color(machine_panel_, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_text_color(machine_panel_, lv_color_hex(0x333333), 0);
+    }
+    if (granule_value_label_ != nullptr) {
+        lv_obj_set_style_text_color(granule_value_label_, lv_color_hex(0x0066CC), 0);
+    }
+    if (water_value_label_ != nullptr) {
+        lv_obj_set_style_text_color(water_value_label_, lv_color_hex(0x0066CC), 0);
+    }
+    if (temp_value_label_ != nullptr) {
+        lv_obj_set_style_text_color(temp_value_label_, lv_color_hex(0x0066CC), 0);
+    }
+    if (machine_progress_label_ != nullptr) {
+        lv_obj_set_style_text_color(machine_progress_label_, lv_color_hex(0x333333), 0);
+    }
+    if (completed_title_label_ != nullptr) {
+        lv_obj_set_style_text_color(completed_title_label_, lv_color_hex(0x009933), 0);
+    }
+    if (completed_info_label_ != nullptr) {
+        lv_obj_set_style_text_color(completed_info_label_, lv_color_hex(0x333333), 0);
+    }
+    if (brewing_animated_label_ != nullptr) {
+        lv_obj_set_style_text_color(brewing_animated_label_, lv_color_hex(0x0066CC), 0);
+    }
+
     // If we have the chat message style, update all message bubbles
 #if CONFIG_USE_WECHAT_MESSAGE_STYLE
     // Iterate through all children of content (message containers or bubbles)
@@ -1115,6 +2027,8 @@ void LcdDisplay::SetTheme(Theme* theme) {
     
     // Update low battery popup
     lv_obj_set_style_bg_color(low_battery_popup_, lvgl_theme->low_battery_color(), 0);
+
+    ApplyUiModeLocked();
 
     // No errors occurred. Save theme to settings
     Display::SetTheme(lvgl_theme);
