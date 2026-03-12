@@ -22,7 +22,7 @@
 LV_FONT_DECLARE(BUILTIN_TEXT_FONT);
 LV_FONT_DECLARE(BUILTIN_ICON_FONT);
 LV_FONT_DECLARE(font_awesome_30_4);
-LV_FONT_DECLARE(font_puhui_14_1);
+LV_FONT_DECLARE(font_puhui_20_4);
 
 void LcdDisplay::InitializeLcdThemes() {
     auto text_font = std::make_shared<LvglBuiltInFont>(&BUILTIN_TEXT_FONT);
@@ -373,7 +373,7 @@ void LcdDisplay::SetupMachinePanel() {
         return;
     }
 
-    const lv_font_t* machine_text_font = &font_puhui_14_1;
+    const lv_font_t* machine_text_font = &font_puhui_20_4;
 
     const lv_color_t bg_white = lv_color_hex(0xFFFFFF);
     const lv_color_t text_dark = lv_color_hex(0x333333);
@@ -397,7 +397,7 @@ void LcdDisplay::SetupMachinePanel() {
 
     auto create_page = [&](int index, const char* title_text, bool has_action_area) {
         machine_pages_[index] = lv_obj_create(machine_panel_);
-        lv_obj_set_size(machine_pages_[index], LV_HOR_RES, LV_VER_RES);
+        lv_obj_set_size(machine_pages_[index], LV_PCT(100), LV_PCT(100));
         lv_obj_set_style_pad_all(machine_pages_[index], 10, 0);
         lv_obj_set_style_pad_row(machine_pages_[index], 8, 0);
         lv_obj_set_style_border_width(machine_pages_[index], 0, 0);
@@ -464,6 +464,11 @@ void LcdDisplay::SetupMachinePanel() {
     };
 
     auto [page1_body, page1_action] = create_page(0, "选择饮品&浓度", true);
+    lv_obj_set_flex_grow(page1_body, 1);
+    lv_obj_set_flex_align(page1_body, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_height(page1_action, 52);
+    lv_obj_set_style_pad_bottom(page1_action, 10, 0);
+    lv_obj_set_flex_align(page1_action, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER);
     lv_obj_t* drink_wrap = lv_obj_create(page1_body);
     lv_obj_set_size(drink_wrap, 220, LV_SIZE_CONTENT);
     lv_obj_set_style_bg_opa(drink_wrap, LV_OPA_TRANSP, 0);
@@ -528,11 +533,12 @@ void LcdDisplay::SetupMachinePanel() {
     lv_obj_set_style_text_align(granule_name, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_color(granule_name, text_dark, 0);
     lv_obj_set_style_text_font(granule_name, machine_text_font, 0);
-    lv_label_set_text(granule_name, "颗粒重量");
+    lv_label_set_text(granule_name, "重量");
 
     granule_value_label_ = lv_label_create(granule_box);
     lv_obj_set_width(granule_value_label_, 66);
     lv_obj_set_style_text_align(granule_value_label_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_translate_x(granule_value_label_, -10, 0);
     lv_obj_set_style_text_color(granule_value_label_, text_highlight, 0);
     lv_obj_set_style_text_font(granule_value_label_, machine_text_font, 0);
 
@@ -568,11 +574,10 @@ void LcdDisplay::SetupMachinePanel() {
 
     lv_obj_t* page1_next = lv_obj_create(page1_action);
     ApplyButtonStyle(page1_next, nullptr, btn_next, lv_color_white(), 8);
-    lv_obj_set_size(page1_next, 200, 45);
+    lv_obj_set_size(page1_next, 200, 42);
     lv_obj_set_scrollbar_mode(page1_next, LV_SCROLLBAR_MODE_OFF);
     lv_obj_remove_flag(page1_next, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(page1_next, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(page1_next, LV_ALIGN_CENTER, 0, 0);
     lv_obj_t* page1_next_label = lv_label_create(page1_next);
     lv_obj_set_style_text_font(page1_next_label, machine_text_font, 0);
     lv_obj_set_style_text_color(page1_next_label, lv_color_white(), 0);
@@ -609,13 +614,15 @@ void LcdDisplay::SetupMachinePanel() {
     lv_obj_t* water_name = lv_label_create(water_box);
     lv_obj_set_width(water_name, 88);
     lv_obj_set_style_text_align(water_name, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_translate_x(water_name, -5, 0);
     lv_obj_set_style_text_color(water_name, text_dark, 0);
     lv_obj_set_style_text_font(water_name, machine_text_font, 0);
-    lv_label_set_text(water_name, "冲调水量");
+    lv_label_set_text(water_name, "水量");
 
     water_value_label_ = lv_label_create(water_box);
     lv_obj_set_width(water_value_label_, 66);
     lv_obj_set_style_text_align(water_value_label_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_translate_x(water_value_label_, -15, 0);
     lv_obj_set_style_text_color(water_value_label_, text_highlight, 0);
     lv_obj_set_style_text_font(water_value_label_, machine_text_font, 0);
 
@@ -705,11 +712,12 @@ void LcdDisplay::SetupMachinePanel() {
     lv_obj_set_style_text_align(temp_name, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_color(temp_name, text_dark, 0);
     lv_obj_set_style_text_font(temp_name, machine_text_font, 0);
-    lv_label_set_text(temp_name, "冲调温度");
+    lv_label_set_text(temp_name, "温度");
 
     temp_value_label_ = lv_label_create(temp_box);
     lv_obj_set_width(temp_value_label_, 66);
     lv_obj_set_style_text_align(temp_value_label_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_translate_x(temp_value_label_, -10, 0);
     lv_obj_set_style_text_color(temp_value_label_, text_highlight, 0);
     lv_obj_set_style_text_font(temp_value_label_, machine_text_font, 0);
 
@@ -797,6 +805,7 @@ void LcdDisplay::SetupMachinePanel() {
     lv_label_set_text(machine_progress_label_, "进度：0%");
 
     auto [page5_body, page5_action] = create_page(4, "冲调完成", true);
+    lv_obj_set_flex_align(page5_action, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER);
     completed_title_label_ = lv_label_create(page5_body);
     lv_obj_set_style_text_font(completed_title_label_, machine_text_font, 0);
     lv_obj_set_style_text_color(completed_title_label_, lv_color_hex(0x009933), 0);
@@ -813,14 +822,13 @@ void LcdDisplay::SetupMachinePanel() {
 
     lv_obj_t* remake_button = lv_obj_create(page5_action);
     ApplyButtonStyle(remake_button, nullptr, btn_next, lv_color_white(), 8);
-    lv_obj_set_size(remake_button, 100, 45);
+    lv_obj_set_size(remake_button, 200, 42);
     lv_obj_set_scrollbar_mode(remake_button, LV_SCROLLBAR_MODE_OFF);
     lv_obj_remove_flag(remake_button, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_align(remake_button, LV_ALIGN_CENTER, 0, 0);
     lv_obj_t* remake_label = lv_label_create(remake_button);
     lv_obj_set_style_text_font(remake_label, machine_text_font, 0);
     lv_obj_set_style_text_color(remake_label, lv_color_white(), 0);
-    lv_label_set_text(remake_label, "重新制作");
+    lv_label_set_text(remake_label, "继续制作");
     lv_obj_center(remake_label);
     AddButtonPressFeedback(remake_button);
     lv_obj_add_event_cb(remake_button, [](lv_event_t* e) {
