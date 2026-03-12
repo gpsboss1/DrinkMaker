@@ -9,6 +9,7 @@
 #include <font_emoji.h>
 
 #include <atomic>
+#include <functional>
 #include <memory>
 
 #define PREVIEW_IMAGE_DURATION_MS 5000
@@ -64,11 +65,16 @@ protected:
     esp_timer_handle_t machine_brew_anim_timer_ = nullptr;
 
     int machine_selected_drink_index_ = -1;
+    bool cup_popup_validation_mode_ = false;
+    bool machine_brewing_started_ = false;
     int machine_granule_g_ = 20;
     int machine_water_ml_ = 200;
     int machine_temp_c_ = 85;
     int machine_progress_percent_ = 0;
     int machine_anim_phase_ = 0;
+
+    std::function<void(uint16_t)> machine_send_water_command_;
+    std::function<void()> machine_send_start_command_;
 
     esp_timer_handle_t preview_timer_ = nullptr;
     std::unique_ptr<LvglImage> preview_image_cached_ = nullptr;
@@ -110,6 +116,9 @@ public:
     virtual void SetPreviewImage(std::unique_ptr<LvglImage> image) override;
     void SetUiModeByName(const std::string& mode_name);
     std::string GetUiModeName() const;
+    void SetMachineWaterCommandSender(std::function<void(uint16_t)> callback);
+    void SetMachineStartCommandSender(std::function<void()> callback);
+    void OnStm32StatusReport(uint8_t state);
 
     // Add theme switching function
     virtual void SetTheme(Theme* theme) override;

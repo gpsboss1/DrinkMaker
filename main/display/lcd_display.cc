@@ -593,7 +593,10 @@ void LcdDisplay::SetupMachinePanel() {
             return;
         }
         if (display->machine_selected_drink_index_ < 0) {
-            lv_label_set_text(display->machine_hint_label_, "请先选择饮品");
+            display->cup_popup_validation_mode_ = true;
+            lv_label_set_text(display->cup_popup_tip_label_, "请先选择饮品");
+            lv_label_set_text(display->cup_popup_confirm_button_label_, "知道了");
+            display->ShowCupPopup(true);
             return;
         }
         display->SwitchMachinePage(1);
@@ -690,6 +693,9 @@ void LcdDisplay::SetupMachinePanel() {
         if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
             auto* display = static_cast<LcdDisplay*>(lv_event_get_user_data(e));
             if (display != nullptr) {
+                if (display->machine_send_water_command_) {
+                    display->machine_send_water_command_(static_cast<uint16_t>(display->machine_water_ml_));
+                }
                 display->SwitchMachinePage(2);
             }
         }
@@ -785,6 +791,13 @@ void LcdDisplay::SetupMachinePanel() {
         if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
             auto* display = static_cast<LcdDisplay*>(lv_event_get_user_data(e));
             if (display != nullptr) {
+                if (display->machine_send_start_command_) {
+                    display->machine_send_start_command_();
+                }
+                display->machine_brewing_started_ = false;
+                display->cup_popup_validation_mode_ = false;
+                lv_label_set_text(display->cup_popup_tip_label_, "请放置杯子后确认");
+                lv_label_set_text(display->cup_popup_confirm_button_label_, "确认");
                 display->ShowCupPopup(true);
             }
         }
@@ -887,8 +900,11 @@ void LcdDisplay::SetupMachinePanel() {
         if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
             auto* display = static_cast<LcdDisplay*>(lv_event_get_user_data(e));
             if (display != nullptr) {
-                display->ShowCupPopup(false);
-                display->StartBrewingFlow();
+                bool was_validation = display->cup_popup_validation_mode_;
+                display->cup_popup_validation_mode_ = false;
+                if (was_validation) {
+                    display->ShowCupPopup(false);
+                }
             }
         }
     }, LV_EVENT_CLICKED, this);
@@ -1076,6 +1092,10 @@ void LcdDisplay::ShowCupPopup(bool show) {
 }
 
 void LcdDisplay::StartBrewingFlow() {
+    if (machine_brewing_started_) {
+        return;
+    }
+    machine_brewing_started_ = true;
     machine_progress_percent_ = 0;
     machine_anim_phase_ = 0;
     UpdateMachineValueLabels();
@@ -1139,6 +1159,7 @@ void LcdDisplay::UpdateCompletedSummary() {
 
 void LcdDisplay::ResetMachineFlow() {
     StopBrewingFlow();
+    machine_brewing_started_ = false;
     machine_selected_drink_index_ = -1;
     machine_granule_g_ = 20;
     machine_water_ml_ = 200;
@@ -1207,6 +1228,49 @@ void LcdDisplay::SetUiModeByName(const std::string& mode_name) {
 std::string LcdDisplay::GetUiModeName() const {
     // 给 MCP/上层调用返回当前模式名称。
     return ui_mode_ == UiMode::Machine ? "machine" : "chat";
+}
+
+void LcdDisplay::SetMachineWaterCommandSender(std::function<void(uint16_t)> callback) {
+    machine_send_water_command_ = std::move(callback);
+}
+
+void LcdDisplay::SetMachineStartCommandSender(std::function<void()> callback) {
+    machine_send_start_command_ = std::move(callback);
+}
+
+void LcdDisplay::OnStm32StatusReport(uint8_t state) {
+    DisplayLockGuard lock(this);
+    if (ui_mode_ != UiMode::Machine) {
+        return;
+    }
+
+    constexpr uint8_t STATE_REPORT_IDLE = 0x00;
+    constexpr uint8_t STATE_REPORT_WAIT_CUP = 0x01;
+    constexpr uint8_t STATE_REPORT_FILLING = 0x04;
+
+    if (state == STATE_REPORT_IDLE) {
+        bool waiting_cup_popup_shown = (cup_popup_mask_ != nullptr) && !lv_obj_has_flag(cup_popup_mask_, LV_OBJ_FLAG_HIDDEN);
+        bool waiting_cup_text_active = (cup_popup_tip_label_ != nullptr) &&
+                                       (std::strcmp(lv_label_get_text(cup_popup_tip_label_), "等待检测杯子...") == 0);
+        if (!cup_popup_validation_mode_ && waiting_cup_popup_shown && waiting_cup_text_active) {
+            ResetMachineFlow();
+        }
+        return;
+    }
+
+    if (state == STATE_REPORT_WAIT_CUP) {
+        if (cup_popup_tip_label_ != nullptr && !cup_popup_validation_mode_) {
+            lv_label_set_text(cup_popup_tip_label_, "等待检测杯子...");
+        }
+        return;
+    }
+
+    if (state == STATE_REPORT_FILLING) {
+        if (cup_popup_mask_ != nullptr && !lv_obj_has_flag(cup_popup_mask_, LV_OBJ_FLAG_HIDDEN) && !cup_popup_validation_mode_) {
+            ShowCupPopup(false);
+        }
+        StartBrewingFlow();
+    }
 }
 
 void LcdDisplay::SetStatus(const char* status) {

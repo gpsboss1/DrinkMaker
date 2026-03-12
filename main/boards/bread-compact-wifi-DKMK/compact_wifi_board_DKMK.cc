@@ -19,6 +19,9 @@
 #include <driver/spi_common.h>
 #include <esp_lcd_touch_gt911.h>
 #include <esp_lvgl_port.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <freertos/semphr.h>
 #include "MCPTools.h"
 
 #if defined(LCD_TYPE_ILI9341_SERIAL)
@@ -66,11 +69,200 @@ static const gc9a01_lcd_init_cmd_t gc9107_lcd_init_cmds[] = {
 
 class CompactWifiBoardDKMK : public WifiBoard {
 private:
+    static constexpr uint8_t kProtoHead1 = 0xAA;
+    static constexpr uint8_t kProtoHead2 = 0x55;
+    static constexpr uint8_t kProtoDevStm32 = 0x01;
+    static constexpr uint8_t kCmdSetWaterVolume = 0x12;
+    static constexpr uint8_t kCmdStartBrew = 0x20;
+    static constexpr uint8_t kCmdStatusReport = 0x80;
+
+    enum class ProtoRxState : uint8_t {
+        WaitHead1,
+        WaitHead2,
+        ReadDev,
+        ReadCmd,
+        ReadLen,
+        ReadData,
+        ReadCrc,
+    };
+
  
     Button boot_button_;
     LcdDisplay* display_;
     i2c_master_bus_handle_t touch_i2c_bus_ = nullptr;
     esp_lcd_touch_handle_t touch_ = nullptr;
+    SemaphoreHandle_t uart_tx_mutex_ = nullptr;
+    TaskHandle_t uart_rx_task_handle_ = nullptr;
+    ProtoRxState proto_rx_state_ = ProtoRxState::WaitHead1;
+    uint8_t proto_rx_dev_ = 0;
+    uint8_t proto_rx_cmd_ = 0;
+    uint8_t proto_rx_len_ = 0;
+    uint8_t proto_rx_data_[16] = {0};
+    uint8_t proto_rx_data_index_ = 0;
+
+    static void UartRxTaskEntry(void* arg) {
+        auto* self = static_cast<CompactWifiBoardDKMK*>(arg);
+        if (self != nullptr) {
+            self->UartRxTaskLoop();
+        }
+        vTaskDelete(nullptr);
+    }
+
+    void UartRxTaskLoop() {
+        uint8_t byte = 0;
+        while (true) {
+            int read_len = uart_read_bytes(UART_PORT_NUM, &byte, 1, pdMS_TO_TICKS(100));
+            if (read_len == 1) {
+                HandleProtoRxByte(byte);
+            }
+        }
+    }
+
+    static uint8_t CalcProtoCrc(uint8_t dev, uint8_t cmd, uint8_t len, const uint8_t* data) {
+        uint16_t sum = static_cast<uint16_t>(dev + cmd + len);
+        for (uint8_t i = 0; i < len; ++i) {
+            sum += data[i];
+        }
+        return static_cast<uint8_t>(sum & 0xFF);
+    }
+
+    bool SendProtoFrame(uint8_t cmd, const uint8_t* data, uint8_t len) {
+        if (len > sizeof(proto_rx_data_)) {
+            ESP_LOGW(TAG, "Proto tx payload too long: %u", len);
+            return false;
+        }
+        if (uart_tx_mutex_ == nullptr) {
+            ESP_LOGW(TAG, "UART tx mutex not initialized");
+            return false;
+        }
+
+        uint8_t tx[2 + 1 + 1 + 1 + 16 + 1] = {0};
+        uint8_t idx = 0;
+        tx[idx++] = kProtoHead1;
+        tx[idx++] = kProtoHead2;
+        tx[idx++] = kProtoDevStm32;
+        tx[idx++] = cmd;
+        tx[idx++] = len;
+        for (uint8_t i = 0; i < len; ++i) {
+            tx[idx++] = data[i];
+        }
+        tx[idx++] = CalcProtoCrc(kProtoDevStm32, cmd, len, data);
+
+        if (xSemaphoreTake(uart_tx_mutex_, pdMS_TO_TICKS(100)) != pdTRUE) {
+            ESP_LOGW(TAG, "UART tx mutex timeout");
+            return false;
+        }
+        int written = uart_write_bytes(UART_PORT_NUM, reinterpret_cast<const char*>(tx), idx);
+        xSemaphoreGive(uart_tx_mutex_);
+
+        if (written != idx) {
+            ESP_LOGW(TAG, "UART tx incomplete: %d/%u", written, idx);
+            return false;
+        }
+        return true;
+    }
+
+    void SendSetWaterVolume(uint16_t ml) {
+        uint8_t data[2] = {
+            static_cast<uint8_t>((ml >> 8) & 0xFF),
+            static_cast<uint8_t>(ml & 0xFF),
+        };
+        if (SendProtoFrame(kCmdSetWaterVolume, data, sizeof(data))) {
+            ESP_LOGI(TAG, "Send water volume to STM32: %u ml", ml);
+        }
+    }
+
+    void SendStartBrew() {
+        if (SendProtoFrame(kCmdStartBrew, nullptr, 0)) {
+            ESP_LOGI(TAG, "Send start brew command to STM32");
+        }
+    }
+
+    void BindDisplayProtocolCallbacks() {
+        if (display_ == nullptr) {
+            return;
+        }
+        display_->SetMachineWaterCommandSender([this](uint16_t ml) {
+            SendSetWaterVolume(ml);
+        });
+        display_->SetMachineStartCommandSender([this]() {
+            SendStartBrew();
+        });
+    }
+
+    void InitializeUartProtocolTask() {
+        if (uart_tx_mutex_ == nullptr) {
+            uart_tx_mutex_ = xSemaphoreCreateMutex();
+        }
+        if (uart_rx_task_handle_ == nullptr) {
+            xTaskCreate(UartRxTaskEntry, "stm32_uart_rx", 4096, this, 4, &uart_rx_task_handle_);
+        }
+    }
+
+    void HandleProtoFrame(uint8_t cmd, const uint8_t* data, uint8_t len) {
+        if (cmd == kCmdStatusReport && len >= 1 && display_ != nullptr) {
+            display_->OnStm32StatusReport(data[0]);
+            return;
+        }
+
+        ESP_LOGI(TAG, "Recv proto frame cmd=0x%02X len=%u", cmd, len);
+    }
+
+    void HandleProtoRxByte(uint8_t byte) {
+        switch (proto_rx_state_) {
+            case ProtoRxState::WaitHead1:
+                if (byte == kProtoHead1) {
+                    proto_rx_state_ = ProtoRxState::WaitHead2;
+                }
+                break;
+
+            case ProtoRxState::WaitHead2:
+                proto_rx_state_ = (byte == kProtoHead2) ? ProtoRxState::ReadDev : ProtoRxState::WaitHead1;
+                break;
+
+            case ProtoRxState::ReadDev:
+                proto_rx_dev_ = byte;
+                proto_rx_state_ = ProtoRxState::ReadCmd;
+                break;
+
+            case ProtoRxState::ReadCmd:
+                proto_rx_cmd_ = byte;
+                proto_rx_state_ = ProtoRxState::ReadLen;
+                break;
+
+            case ProtoRxState::ReadLen:
+                proto_rx_len_ = byte;
+                proto_rx_data_index_ = 0;
+                if (proto_rx_len_ > sizeof(proto_rx_data_)) {
+                    proto_rx_state_ = ProtoRxState::WaitHead1;
+                } else if (proto_rx_len_ == 0) {
+                    proto_rx_state_ = ProtoRxState::ReadCrc;
+                } else {
+                    proto_rx_state_ = ProtoRxState::ReadData;
+                }
+                break;
+
+            case ProtoRxState::ReadData:
+                proto_rx_data_[proto_rx_data_index_++] = byte;
+                if (proto_rx_data_index_ >= proto_rx_len_) {
+                    proto_rx_state_ = ProtoRxState::ReadCrc;
+                }
+                break;
+
+            case ProtoRxState::ReadCrc: {
+                uint8_t calc_crc = CalcProtoCrc(proto_rx_dev_, proto_rx_cmd_, proto_rx_len_, proto_rx_data_);
+                if (byte == calc_crc && proto_rx_dev_ == kProtoDevStm32) {
+                    HandleProtoFrame(proto_rx_cmd_, proto_rx_data_, proto_rx_len_);
+                }
+                proto_rx_state_ = ProtoRxState::WaitHead1;
+                break;
+            }
+
+            default:
+                proto_rx_state_ = ProtoRxState::WaitHead1;
+                break;
+        }
+    }
 
     bool ProbeI2cAddress(uint8_t addr) {
         if (touch_i2c_bus_ == nullptr) {
@@ -254,7 +446,7 @@ private:
     void InitializeUart() {
         ESP_LOGI(TAG, "初始化串口,引脚rx: %d,tx: %d", UART_RX_PIN, UART_TX_PIN);
         uart_config_t uart_config = {
-            .baud_rate = 9600,
+            .baud_rate = 115200,
             .data_bits = UART_DATA_8_BITS,
             .parity = UART_PARITY_DISABLE,
             .stop_bits = UART_STOP_BITS_1,
@@ -277,6 +469,8 @@ public:
         InitializeTouch();
         InitializeButtons();
         InitializeUart();
+        InitializeUartProtocolTask();
+        BindDisplayProtocolCallbacks();
         InitializeTools();
         if (DISPLAY_BACKLIGHT_PIN != GPIO_NUM_NC) {
             GetBacklight()->RestoreBrightness();
