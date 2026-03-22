@@ -599,6 +599,9 @@ void LcdDisplay::SetupMachinePanel() {
             display->ShowCupPopup(true);
             return;
         }
+        if (display->machine_send_powder_command_) {
+            display->machine_send_powder_command_(static_cast<uint16_t>(display->machine_granule_g_));
+        }
         display->SwitchMachinePage(1);
     }, LV_EVENT_CLICKED, this);
 
@@ -1161,7 +1164,7 @@ void LcdDisplay::ResetMachineFlow() {
     StopBrewingFlow();
     machine_brewing_started_ = false;
     machine_selected_drink_index_ = -1;
-    machine_granule_g_ = 20;
+    machine_granule_g_ = 10;
     machine_water_ml_ = 200;
     machine_temp_c_ = 85;
     machine_progress_percent_ = 0;
@@ -1228,6 +1231,10 @@ void LcdDisplay::SetUiModeByName(const std::string& mode_name) {
 std::string LcdDisplay::GetUiModeName() const {
     // 给 MCP/上层调用返回当前模式名称。
     return ui_mode_ == UiMode::Machine ? "machine" : "chat";
+}
+
+void LcdDisplay::SetMachinePowderCommandSender(std::function<void(uint16_t)> callback) {
+    machine_send_powder_command_ = std::move(callback);
 }
 
 void LcdDisplay::SetMachineWaterCommandSender(std::function<void(uint16_t)> callback) {

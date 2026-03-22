@@ -72,6 +72,7 @@ private:
     static constexpr uint8_t kProtoHead1 = 0xAA;
     static constexpr uint8_t kProtoHead2 = 0x55;
     static constexpr uint8_t kProtoDevStm32 = 0x01;
+    static constexpr uint8_t kCmdSetPowderWeight = 0x13;
     static constexpr uint8_t kCmdSetWaterVolume = 0x12;
     static constexpr uint8_t kCmdStartBrew = 0x20;
     static constexpr uint8_t kCmdStatusReport = 0x80;
@@ -172,6 +173,16 @@ private:
         }
     }
 
+    void SendSetPowderWeight(uint16_t gram) {
+        uint8_t data[2] = {
+            static_cast<uint8_t>((gram >> 8) & 0xFF),
+            static_cast<uint8_t>(gram & 0xFF),
+        };
+        if (SendProtoFrame(kCmdSetPowderWeight, data, sizeof(data))) {
+            ESP_LOGI(TAG, "Send powder weight to STM32: %u g", gram);
+        }
+    }
+
     void SendStartBrew() {
         if (SendProtoFrame(kCmdStartBrew, nullptr, 0)) {
             ESP_LOGI(TAG, "Send start brew command to STM32");
@@ -182,6 +193,9 @@ private:
         if (display_ == nullptr) {
             return;
         }
+        display_->SetMachinePowderCommandSender([this](uint16_t gram) {
+            SendSetPowderWeight(gram);
+        });
         display_->SetMachineWaterCommandSender([this](uint16_t ml) {
             SendSetWaterVolume(ml);
         });
