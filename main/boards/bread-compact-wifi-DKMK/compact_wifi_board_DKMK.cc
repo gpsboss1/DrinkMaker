@@ -72,10 +72,13 @@ private:
     static constexpr uint8_t kProtoHead1 = 0xAA;
     static constexpr uint8_t kProtoHead2 = 0x55;
     static constexpr uint8_t kProtoDevStm32 = 0x01;
+    static constexpr uint8_t kCmdSetTemperature = 0x11;
     static constexpr uint8_t kCmdSetPowderWeight = 0x13;
     static constexpr uint8_t kCmdSetWaterVolume = 0x12;
     static constexpr uint8_t kCmdStartBrew = 0x20;
     static constexpr uint8_t kCmdStatusReport = 0x80;
+    static constexpr uint8_t kCmdErrorReport = 0x81;
+    static constexpr uint8_t kCmdTempReport = 0x83;
 
     enum class ProtoRxState : uint8_t {
         WaitHead1,
@@ -183,6 +186,13 @@ private:
         }
     }
 
+    void SendSetTemperature(uint8_t temp_c) {
+        uint8_t data[1] = {temp_c};
+        if (SendProtoFrame(kCmdSetTemperature, data, sizeof(data))) {
+            ESP_LOGI(TAG, "Send target temperature to STM32: %u C", temp_c);
+        }
+    }
+
     void SendStartBrew() {
         if (SendProtoFrame(kCmdStartBrew, nullptr, 0)) {
             ESP_LOGI(TAG, "Send start brew command to STM32");
@@ -198,6 +208,9 @@ private:
         });
         display_->SetMachineWaterCommandSender([this](uint16_t ml) {
             SendSetWaterVolume(ml);
+        });
+        display_->SetMachineTempCommandSender([this](uint8_t temp_c) {
+            SendSetTemperature(temp_c);
         });
         display_->SetMachineStartCommandSender([this]() {
             SendStartBrew();
@@ -216,6 +229,24 @@ private:
     void HandleProtoFrame(uint8_t cmd, const uint8_t* data, uint8_t len) {
         if (cmd == kCmdStatusReport && len >= 1 && display_ != nullptr) {
             display_->OnStm32StatusReport(data[0]);
+            return;
+        }
+
+        if (cmd == kCmdErrorReport && len >= 1 && display_ != nullptr) {
+            display_->OnStm32ErrorReport(data[0]);
+            return;
+        }
+
+        if (cmd == kCmdTempReport && len >= 6) {
+            int16_t water_x10 = static_cast<int16_t>((static_cast<uint16_t>(data[0]) << 8) | data[1]);
+            int16_t cup_x10 = static_cast<int16_t>((static_cast<uint16_t>(data[2]) << 8) | data[3]);
+            uint8_t heat_on = data[4];
+            uint8_t set_temp = data[5];
+            ESP_LOGI(TAG, "Temp report water=%.1fC cup=%.1fC heat=%u set=%uC",
+                     static_cast<float>(water_x10) / 10.0f,
+                     static_cast<float>(cup_x10) / 10.0f,
+                     heat_on,
+                     set_temp);
             return;
         }
 

@@ -23,6 +23,7 @@ LV_FONT_DECLARE(BUILTIN_TEXT_FONT);
 LV_FONT_DECLARE(BUILTIN_ICON_FONT);
 LV_FONT_DECLARE(font_awesome_30_4);
 LV_FONT_DECLARE(font_puhui_20_4);
+extern const lv_image_dsc_t orange_juice51x51;
 
 void LcdDisplay::InitializeLcdThemes() {
     auto text_font = std::make_shared<LvglBuiltInFont>(&BUILTIN_TEXT_FONT);
@@ -794,6 +795,9 @@ void LcdDisplay::SetupMachinePanel() {
         if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
             auto* display = static_cast<LcdDisplay*>(lv_event_get_user_data(e));
             if (display != nullptr) {
+                if (display->machine_send_temp_command_) {
+                    display->machine_send_temp_command_(static_cast<uint8_t>(display->machine_temp_c_));
+                }
                 if (display->machine_send_start_command_) {
                     display->machine_send_start_command_();
                 }
@@ -807,6 +811,9 @@ void LcdDisplay::SetupMachinePanel() {
     }, LV_EVENT_CLICKED, this);
 
     auto [page4_body, _page4_action] = create_page(3, "冲调中", false);
+    lv_obj_t* brewing_image = lv_image_create(page4_body);
+    lv_image_set_src(brewing_image, &orange_juice51x51);
+
     brewing_animated_label_ = lv_label_create(page4_body);
     lv_obj_set_style_text_font(brewing_animated_label_, machine_text_font, 0);
     lv_obj_set_style_text_color(brewing_animated_label_, text_highlight, 0);
@@ -907,6 +914,9 @@ void LcdDisplay::SetupMachinePanel() {
                 display->cup_popup_validation_mode_ = false;
                 if (was_validation) {
                     display->ShowCupPopup(false);
+                } else {
+                    display->ShowCupPopup(false);
+                    display->StartBrewingFlow();
                 }
             }
         }
@@ -1038,13 +1048,26 @@ void LcdDisplay::AdjustWater(int delta) {
 }
 
 void LcdDisplay::AdjustTemp(int delta) {
-    machine_temp_c_ += delta;
-    if (machine_temp_c_ < 40) {
-        machine_temp_c_ = 40;
+    constexpr int kTempOptions[] = {20, 40, 60, 80};
+    constexpr int kTempOptionCount = sizeof(kTempOptions) / sizeof(kTempOptions[0]);
+
+    int nearest_index = 0;
+    int nearest_diff = std::abs(machine_temp_c_ - kTempOptions[0]);
+    for (int i = 1; i < kTempOptionCount; ++i) {
+        int diff = std::abs(machine_temp_c_ - kTempOptions[i]);
+        if (diff < nearest_diff) {
+            nearest_diff = diff;
+            nearest_index = i;
+        }
     }
-    if (machine_temp_c_ > 95) {
-        machine_temp_c_ = 95;
+
+    if (delta > 0 && nearest_index < (kTempOptionCount - 1)) {
+        nearest_index++;
+    } else if (delta < 0 && nearest_index > 0) {
+        nearest_index--;
     }
+
+    machine_temp_c_ = kTempOptions[nearest_index];
     UpdateMachineValueLabels();
 }
 
@@ -1166,7 +1189,7 @@ void LcdDisplay::ResetMachineFlow() {
     machine_selected_drink_index_ = -1;
     machine_granule_g_ = 10;
     machine_water_ml_ = 200;
-    machine_temp_c_ = 85;
+    machine_temp_c_ = 40;
     machine_progress_percent_ = 0;
     machine_anim_phase_ = 0;
     UpdateMachineValueLabels();
@@ -1241,6 +1264,10 @@ void LcdDisplay::SetMachineWaterCommandSender(std::function<void(uint16_t)> call
     machine_send_water_command_ = std::move(callback);
 }
 
+void LcdDisplay::SetMachineTempCommandSender(std::function<void(uint8_t)> callback) {
+    machine_send_temp_command_ = std::move(callback);
+}
+
 void LcdDisplay::SetMachineStartCommandSender(std::function<void()> callback) {
     machine_send_start_command_ = std::move(callback);
 }
@@ -1277,6 +1304,24 @@ void LcdDisplay::OnStm32StatusReport(uint8_t state) {
             ShowCupPopup(false);
         }
         StartBrewingFlow();
+    }
+}
+
+void LcdDisplay::OnStm32ErrorReport(uint8_t err) {
+    DisplayLockGuard lock(this);
+    if (ui_mode_ != UiMode::Machine) {
+        return;
+    }
+
+    constexpr uint8_t ERR_LOCAL_EMERGENCY = 0x05;
+    if (err == ERR_LOCAL_EMERGENCY) {
+        StopBrewingFlow();
+        machine_brewing_started_ = false;
+        ShowCupPopup(false);
+        SwitchMachinePage(0);
+        if (completed_info_label_ != nullptr) {
+            lv_label_set_text(completed_info_label_, "设备本地急停，请重新开始");
+        }
     }
 }
 

@@ -69,12 +69,13 @@ protected:
     bool machine_brewing_started_ = false;
     int machine_granule_g_ = 10;
     int machine_water_ml_ = 200;
-    int machine_temp_c_ = 85;
+    int machine_temp_c_ = 40;
     int machine_progress_percent_ = 0;
     int machine_anim_phase_ = 0;
 
     std::function<void(uint16_t)> machine_send_powder_command_;
     std::function<void(uint16_t)> machine_send_water_command_;
+    std::function<void(uint8_t)> machine_send_temp_command_;
     std::function<void()> machine_send_start_command_;
 
     esp_timer_handle_t preview_timer_ = nullptr;
@@ -119,8 +120,10 @@ public:
     std::string GetUiModeName() const;
     void SetMachinePowderCommandSender(std::function<void(uint16_t)> callback);
     void SetMachineWaterCommandSender(std::function<void(uint16_t)> callback);
+    void SetMachineTempCommandSender(std::function<void(uint8_t)> callback);
     void SetMachineStartCommandSender(std::function<void()> callback);
     void OnStm32StatusReport(uint8_t state);
+    void OnStm32ErrorReport(uint8_t err);
 
     // Add theme switching function
     virtual void SetTheme(Theme* theme) override;
