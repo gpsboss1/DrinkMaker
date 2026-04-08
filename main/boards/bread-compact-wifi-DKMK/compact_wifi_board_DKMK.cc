@@ -78,6 +78,7 @@ private:
     static constexpr uint8_t kCmdStartBrew = 0x20;
     static constexpr uint8_t kCmdStatusReport = 0x80;
     static constexpr uint8_t kCmdErrorReport = 0x81;
+    static constexpr uint8_t kCmdBrewDone = 0x82;
     static constexpr uint8_t kCmdTempReport = 0x83;
 
     enum class ProtoRxState : uint8_t {
@@ -232,21 +233,29 @@ private:
             return;
         }
 
+        if (cmd == kCmdBrewDone && display_ != nullptr) {
+            display_->OnStm32BrewDone();
+            return;
+        }
+
         if (cmd == kCmdErrorReport && len >= 1 && display_ != nullptr) {
             display_->OnStm32ErrorReport(data[0]);
             return;
         }
 
-        if (cmd == kCmdTempReport && len >= 6) {
-            int16_t water_x10 = static_cast<int16_t>((static_cast<uint16_t>(data[0]) << 8) | data[1]);
-            int16_t cup_x10 = static_cast<int16_t>((static_cast<uint16_t>(data[2]) << 8) | data[3]);
-            uint8_t heat_on = data[4];
-            uint8_t set_temp = data[5];
-            ESP_LOGI(TAG, "Temp report water=%.1fC cup=%.1fC heat=%u set=%uC",
-                     static_cast<float>(water_x10) / 10.0f,
-                     static_cast<float>(cup_x10) / 10.0f,
-                     heat_on,
-                     set_temp);
+        if (cmd == kCmdTempReport && len >= 7 && display_ != nullptr) {
+            uint8_t stage = data[0];
+            int16_t current_weight_x10 = static_cast<int16_t>((static_cast<uint16_t>(data[1]) << 8) | data[2]);
+            int16_t water_x10 = static_cast<int16_t>((static_cast<uint16_t>(data[3]) << 8) | data[4]);
+            uint8_t heat_on = data[5];
+            uint8_t set_temp = data[6];
+
+            display_->OnStm32TelemetryReport(
+                stage,
+                static_cast<float>(current_weight_x10) / 10.0f,
+                static_cast<float>(water_x10) / 10.0f,
+                heat_on,
+                set_temp);
             return;
         }
 

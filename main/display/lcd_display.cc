@@ -819,13 +819,29 @@ void LcdDisplay::SetupMachinePanel() {
     lv_obj_set_style_text_color(brewing_animated_label_, text_highlight, 0);
     lv_obj_set_style_text_opa(brewing_animated_label_, LV_OPA_100, 0);
     lv_obj_set_style_text_align(brewing_animated_label_, LV_TEXT_ALIGN_CENTER, 0);
-    lv_label_set_text(brewing_animated_label_, "[BREW] 冲调中...");
+    lv_label_set_text(brewing_animated_label_, "[BREW] 正在准备...");
 
     machine_progress_label_ = lv_label_create(page4_body);
     lv_obj_set_style_text_font(machine_progress_label_, machine_text_font, 0);
     lv_obj_set_style_text_color(machine_progress_label_, text_dark, 0);
     lv_obj_set_style_text_align(machine_progress_label_, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(machine_progress_label_, "进度：0%");
+
+    machine_progress_bar_ = lv_bar_create(page4_body);
+    lv_obj_set_size(machine_progress_bar_, 200, 18);
+    lv_obj_set_style_bg_color(machine_progress_bar_, lv_color_hex(0xD9D9D9), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(machine_progress_bar_, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(machine_progress_bar_, lv_color_hex(0x009933), LV_PART_INDICATOR);
+    lv_bar_set_range(machine_progress_bar_, 0, 100);
+    lv_bar_set_value(machine_progress_bar_, 0, LV_ANIM_OFF);
+
+    machine_runtime_temp_label_ = lv_label_create(page4_body);
+    lv_obj_set_style_text_font(machine_runtime_temp_label_, machine_text_font, 0);
+    lv_obj_set_style_text_color(machine_runtime_temp_label_, text_dark, 0);
+    lv_obj_set_style_text_align(machine_runtime_temp_label_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_width(machine_runtime_temp_label_, 220);
+    lv_label_set_long_mode(machine_runtime_temp_label_, LV_LABEL_LONG_WRAP);
+    lv_label_set_text(machine_runtime_temp_label_, "水温：--.-C\n设定：--C | 加热：-");
 
     auto [page5_body, page5_action] = create_page(4, "冲调完成", true);
     lv_obj_set_flex_align(page5_action, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER);
@@ -1124,11 +1140,11 @@ void LcdDisplay::StartBrewingFlow() {
     machine_brewing_started_ = true;
     machine_progress_percent_ = 0;
     machine_anim_phase_ = 0;
+    brewing_stage_ = 0;
     UpdateMachineValueLabels();
     SwitchMachinePage(3);
     if (machine_progress_timer_ != nullptr) {
         esp_timer_stop(machine_progress_timer_);
-        esp_timer_start_periodic(machine_progress_timer_, 500 * 1000);
     }
     if (machine_brew_anim_timer_ != nullptr) {
         esp_timer_stop(machine_brew_anim_timer_);
@@ -1146,17 +1162,7 @@ void LcdDisplay::StopBrewingFlow() {
 }
 
 void LcdDisplay::OnBrewingTick() {
-    DisplayLockGuard lock(this);
-    machine_progress_percent_ += 10;
-    if (machine_progress_percent_ > 100) {
-        machine_progress_percent_ = 100;
-    }
-    UpdateMachineValueLabels();
-    if (machine_progress_percent_ >= 100) {
-        StopBrewingFlow();
-        UpdateCompletedSummary();
-        SwitchMachinePage(4);
-    }
+    (void)0;
 }
 
 void LcdDisplay::OnBrewAnimTick() {
@@ -1280,6 +1286,7 @@ void LcdDisplay::OnStm32StatusReport(uint8_t state) {
 
     constexpr uint8_t STATE_REPORT_IDLE = 0x00;
     constexpr uint8_t STATE_REPORT_WAIT_CUP = 0x01;
+    constexpr uint8_t STATE_REPORT_POWDER = 0x02;
     constexpr uint8_t STATE_REPORT_FILLING = 0x04;
 
     if (state == STATE_REPORT_IDLE) {
@@ -1299,11 +1306,41 @@ void LcdDisplay::OnStm32StatusReport(uint8_t state) {
         return;
     }
 
+    if (state == STATE_REPORT_POWDER) {
+        if (cup_popup_mask_ != nullptr && !lv_obj_has_flag(cup_popup_mask_, LV_OBJ_FLAG_HIDDEN) && !cup_popup_validation_mode_) {
+            ShowCupPopup(false);
+        }
+        StartBrewingFlow();
+        brewing_stage_ = STATE_REPORT_POWDER;
+        machine_progress_percent_ = 0;
+        if (machine_progress_label_ != nullptr) {
+            lv_label_set_text(machine_progress_label_, "正在加料... 0%");
+        }
+        if (machine_progress_bar_ != nullptr) {
+            lv_bar_set_value(machine_progress_bar_, 0, LV_ANIM_OFF);
+        }
+        if (machine_runtime_temp_label_ != nullptr) {
+            lv_label_set_text(machine_runtime_temp_label_, "水温：--.-C\n设定：--C | 加热：-");
+        }
+        return;
+    }
+
     if (state == STATE_REPORT_FILLING) {
         if (cup_popup_mask_ != nullptr && !lv_obj_has_flag(cup_popup_mask_, LV_OBJ_FLAG_HIDDEN) && !cup_popup_validation_mode_) {
             ShowCupPopup(false);
         }
         StartBrewingFlow();
+        brewing_stage_ = STATE_REPORT_FILLING;
+        machine_progress_percent_ = 0;
+        if (machine_progress_label_ != nullptr) {
+            lv_label_set_text(machine_progress_label_, "正在加水... 0%");
+        }
+        if (machine_progress_bar_ != nullptr) {
+            lv_bar_set_value(machine_progress_bar_, 0, LV_ANIM_OFF);
+        }
+        if (machine_runtime_temp_label_ != nullptr) {
+            lv_label_set_text(machine_runtime_temp_label_, "水温：--.-C\n设定：--C | 加热：-");
+        }
     }
 }
 
@@ -1323,6 +1360,84 @@ void LcdDisplay::OnStm32ErrorReport(uint8_t err) {
             lv_label_set_text(completed_info_label_, "设备本地急停，请重新开始");
         }
     }
+}
+
+void LcdDisplay::OnStm32BrewDone() {
+    DisplayLockGuard lock(this);
+    if (ui_mode_ != UiMode::Machine) {
+        return;
+    }
+
+    StopBrewingFlow();
+    machine_brewing_started_ = false;
+    machine_progress_percent_ = 100;
+    if (machine_progress_label_ != nullptr) {
+        lv_label_set_text(machine_progress_label_, "冲调完成 100%");
+    }
+    if (machine_progress_bar_ != nullptr) {
+        lv_bar_set_value(machine_progress_bar_, 100, LV_ANIM_OFF);
+    }
+    UpdateCompletedSummary();
+    SwitchMachinePage(4);
+}
+
+void LcdDisplay::OnStm32TelemetryReport(uint8_t stage, float current_weight_g, float water_temp_c, uint8_t heat_on, uint8_t set_temp_c) {
+    DisplayLockGuard lock(this);
+    if (ui_mode_ != UiMode::Machine) {
+        return;
+    }
+
+    auto clamp_percent = [](float value) -> int {
+        if (value < 0.0f) {
+            return 0;
+        }
+        if (value > 100.0f) {
+            return 100;
+        }
+        return static_cast<int>(value + 0.5f);
+    };
+
+    int progress = 0;
+    const char* stage_text = nullptr;
+
+    if (stage == 0x02) {
+        float base = static_cast<float>(machine_granule_g_);
+        progress = base > 0.0f ? clamp_percent(current_weight_g / base * 100.0f) : 0;
+        stage_text = "正在加料...";
+    } else if (stage == 0x04) {
+        float added_water = current_weight_g - static_cast<float>(machine_granule_g_);
+        float base = static_cast<float>(machine_water_ml_);
+        progress = base > 0.0f ? clamp_percent(added_water / base * 100.0f) : 0;
+        if (progress > 100) {
+            progress = 100;
+        }
+        stage_text = "正在加水...";
+    } else {
+        progress = 0;
+        stage_text = "正在冲调...";
+    }
+
+    machine_progress_percent_ = progress;
+    brewing_stage_ = stage;
+
+    if (machine_progress_label_ != nullptr) {
+        char progress_text[64] = {0};
+        std::snprintf(progress_text, sizeof(progress_text), "%s %d%%", stage_text, progress);
+        lv_label_set_text(machine_progress_label_, progress_text);
+    }
+
+    if (machine_progress_bar_ != nullptr) {
+        lv_bar_set_value(machine_progress_bar_, progress, LV_ANIM_OFF);
+    }
+
+    if (machine_runtime_temp_label_ != nullptr) {
+        char temp_text[64] = {0};
+        std::snprintf(temp_text, sizeof(temp_text), "水温：%.1fC\n设定：%uC | 加热：%u",
+                      water_temp_c, set_temp_c, heat_on);
+        lv_label_set_text(machine_runtime_temp_label_, temp_text);
+    }
+
+    (void)stage_text;
 }
 
 void LcdDisplay::SetStatus(const char* status) {

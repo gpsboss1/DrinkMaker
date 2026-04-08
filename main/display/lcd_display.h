@@ -54,6 +54,8 @@ protected:
     lv_obj_t* water_value_label_ = nullptr;
     lv_obj_t* temp_value_label_ = nullptr;
     lv_obj_t* brewing_animated_label_ = nullptr;
+    lv_obj_t* machine_progress_bar_ = nullptr;
+    lv_obj_t* machine_runtime_temp_label_ = nullptr;
     lv_obj_t* completed_title_label_ = nullptr;
     lv_obj_t* completed_info_label_ = nullptr;
     lv_obj_t* cup_popup_mask_ = nullptr;
@@ -72,6 +74,7 @@ protected:
     int machine_temp_c_ = 40;
     int machine_progress_percent_ = 0;
     int machine_anim_phase_ = 0;
+    uint8_t brewing_stage_ = 0;
 
     std::function<void(uint16_t)> machine_send_powder_command_;
     std::function<void(uint16_t)> machine_send_water_command_;
@@ -124,6 +127,8 @@ public:
     void SetMachineStartCommandSender(std::function<void()> callback);
     void OnStm32StatusReport(uint8_t state);
     void OnStm32ErrorReport(uint8_t err);
+    void OnStm32TelemetryReport(uint8_t stage, float current_weight_g, float water_temp_c, uint8_t heat_on, uint8_t set_temp_c);
+    void OnStm32BrewDone();
 
     // Add theme switching function
     virtual void SetTheme(Theme* theme) override;
