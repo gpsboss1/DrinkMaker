@@ -1262,6 +1262,55 @@ std::string LcdDisplay::GetUiModeName() const {
     return ui_mode_ == UiMode::Machine ? "machine" : "chat";
 }
 
+std::string LcdDisplay::GetMachineStatusJson() const {
+    // 返回机器当前状态的JSON快照，用于 MCP get_status 工具
+    char buffer[512] = {0};
+    snprintf(buffer, sizeof(buffer),
+             R"({"ui_mode":"%s","drink_index":%d,"powder_g":%d,"water_ml":%d,"temp_c":%d,"stage":%u,"progress_pct":%d,"brewing":%s})",
+             ui_mode_ == UiMode::Machine ? "machine" : "chat",
+             machine_selected_drink_index_,
+             machine_granule_g_,
+             machine_water_ml_,
+             machine_temp_c_,
+             brewing_stage_,
+             machine_progress_percent_,
+             machine_brewing_started_ ? "true" : "false");
+    return std::string(buffer);
+}
+
+void LcdDisplay::ExecutePowderCommand(uint16_t gram) {
+    if (machine_send_powder_command_) {
+        machine_granule_g_ = gram;
+        machine_send_powder_command_(gram);
+    }
+}
+
+void LcdDisplay::ExecuteWaterCommand(uint16_t ml) {
+    if (machine_send_water_command_) {
+        machine_water_ml_ = ml;
+        machine_send_water_command_(ml);
+    }
+}
+
+void LcdDisplay::ExecuteTempCommand(uint8_t temp_c) {
+    if (machine_send_temp_command_) {
+        machine_temp_c_ = temp_c;
+        machine_send_temp_command_(temp_c);
+    }
+}
+
+void LcdDisplay::ExecuteStartCommand() {
+    if (machine_send_start_command_) {
+        machine_send_start_command_();
+    }
+}
+
+void LcdDisplay::CancelBrewCommand() {
+    machine_brewing_started_ = false;
+    machine_progress_percent_ = 0;
+    brewing_stage_ = 0;
+}
+
 void LcdDisplay::SetMachinePowderCommandSender(std::function<void(uint16_t)> callback) {
     machine_send_powder_command_ = std::move(callback);
 }
@@ -1351,13 +1400,18 @@ void LcdDisplay::OnStm32ErrorReport(uint8_t err) {
     }
 
     constexpr uint8_t ERR_LOCAL_EMERGENCY = 0x05;
-    if (err == ERR_LOCAL_EMERGENCY) {
+    constexpr uint8_t ERR_REMOTE_EMERGENCY = 0x06;
+    if (err == ERR_LOCAL_EMERGENCY || err == ERR_REMOTE_EMERGENCY) {
         StopBrewingFlow();
         machine_brewing_started_ = false;
         ShowCupPopup(false);
         SwitchMachinePage(0);
         if (completed_info_label_ != nullptr) {
-            lv_label_set_text(completed_info_label_, "设备本地急停，请重新开始");
+            if (err == ERR_LOCAL_EMERGENCY) {
+                lv_label_set_text(completed_info_label_, "设备本地急停，请重新开始");
+            } else {
+                lv_label_set_text(completed_info_label_, "设备语音急停，请重新开始");
+            }
         }
     }
 }

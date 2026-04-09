@@ -129,6 +129,14 @@ public:
     void OnStm32ErrorReport(uint8_t err);
     void OnStm32TelemetryReport(uint8_t stage, float current_weight_g, float water_temp_c, uint8_t heat_on, uint8_t set_temp_c);
     void OnStm32BrewDone();
+    std::string GetMachineStatusJson() const;
+    
+    // MCP voice control command execution
+    void ExecutePowderCommand(uint16_t gram);
+    void ExecuteWaterCommand(uint16_t ml);
+    void ExecuteTempCommand(uint8_t temp_c);
+    void ExecuteStartCommand();
+    void CancelBrewCommand();
 
     // Add theme switching function
     virtual void SetTheme(Theme* theme) override;
